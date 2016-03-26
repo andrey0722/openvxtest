@@ -22,6 +22,7 @@
     <ClInclude Include="Kernels\ref.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="Kernels\ref\ref_GrabCutSegmentation.c" />
     <ClCompile Include="Kernels\ref\ref_Threshold.c" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
