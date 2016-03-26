@@ -105,6 +105,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="demo.cpp" />
+    <ClCompile Include="Kernels\demo_GrabCut.cpp" />
     <ClCompile Include="Kernels\demo_Threshold.cpp" />
   </ItemGroup>
   <ItemGroup>

@@ -40,7 +40,8 @@ typedef std::unique_ptr<IDemoCase> IDemoCasePtr;
 ///@brief create Thresholding demo and returns pointer to IDemoCase
 IDemoCasePtr CreateThresholdingDemo();
 
-/// TODO: add your demos here
+///@brief create GrabCut demo and returns pointer to IDemoCase
+IDemoCasePtr CreateGrabCutDemo();
 
 ///////////////////////////////////////////////////////////////////////////////
 
@@ -58,7 +59,7 @@ public:
    DemoEngine()
    {
       m_demoRegistry.push_back(CreateThresholdingDemo());
-      // TODO: add your demos here
+	  m_demoRegistry.push_back(CreateGrabCutDemo());
    }
 
    ///@brief Execute demos
