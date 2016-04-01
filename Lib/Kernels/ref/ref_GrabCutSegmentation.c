@@ -9,6 +9,19 @@ Date: 26 March 2016
 
 #include "../ref.h"
 
+/**\brief Finds max flow and min cut in graph.
+
+\details This method implements an experimental max-flow algorithm
+by Yuri Boykov and Vladimir Kolmogorov.
+
+\param[in] i_adjGraph An input adjacency matrix (N+2)x(N+2) for the graph
+where N is number of graph vertices excluding terminals.
+\param[out] o_minCutLabels A byte array of length N to store labels,
+indicating, to which part of cut the vertex is assigned.
+0 means S set, 1 means T set.
+*/
+void maxFlow(vx_matrix i_adjGraph, vx_array o_minCutLabels);
+
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_image dst_image) {
 	const uint32_t src_width = src_image->width;
 	const uint32_t src_height = src_image->height;
@@ -30,4 +43,9 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_image dst_image) 
 		dst_data[i] = src_data[i];
 	}
 	return VX_SUCCESS;
+}
+
+#pragma warning(disable: 4100)
+void maxFlow(vx_matrix i_adjGraph, vx_array o_minCutLabels) {
+
 }
