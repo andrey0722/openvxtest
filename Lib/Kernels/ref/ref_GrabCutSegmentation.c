@@ -8,7 +8,26 @@ Date: 26 March 2016
 */
 
 #include "../ref.h"
-#pragma warning( disable : 4100 )
+
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_image dst_image) {
+	const uint32_t src_width = src_image->width;
+	const uint32_t src_height = src_image->height;
+	const uint32_t dst_width = dst_image->width;
+	const uint32_t dst_height = dst_image->height;
+
+	if (src_width != dst_width || src_height != dst_height)
+	{
+		return VX_ERROR_INVALID_PARAMETERS;
+	}
+	if (src_image->image_type != VX_DF_IMAGE_RGB) {
+		return VX_ERROR_INVALID_PARAMETERS;
+	}
+
+	const uint8_t* src_data = src_image->data;
+	uint8_t* dst_data = dst_image->data;
+
+	for (uint32_t i = 0; i < src_height * src_width * 3; i++) {
+		dst_data[i] = src_data[i];
+	}
 	return VX_SUCCESS;
 }
