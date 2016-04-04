@@ -33,10 +33,10 @@ indicating, to which part of cut the vertex is assigned.
 void maxFlow(vx_matrix i_adjGraph, vx_array o_minCutLabels);
 
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
-	const uint32_t src_width = src_image->width;
-	const uint32_t src_height = src_image->height;
-	const uint32_t dst_width = dst_image->width;
-	const uint32_t dst_height = dst_image->height;
+	const vx_uint32 src_width = src_image->width;
+	const vx_uint32 src_height = src_image->height;
+	const vx_uint32 dst_width = dst_image->width;
+	const vx_uint32 dst_height = dst_image->height;
 
 	if (src_width != dst_width || src_height != dst_height)
 	{
@@ -46,10 +46,10 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 		return VX_ERROR_INVALID_PARAMETERS;
 	}
 
-	const uint8_t* src_data = src_image->data;
-	uint8_t* dst_data = dst_image->data;
+	const vx_uint8* src_data = src_image->data;
+	vx_uint8* dst_data = dst_image->data;
 
-	for (uint32_t i = 0; i < src_height * src_width * 3; i++) {
+	for (vx_uint32 i = 0; i < src_height * src_width * 3; i++) {
 		dst_data[i] = src_data[i];
 	}
 	return VX_SUCCESS;
