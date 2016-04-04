@@ -35,10 +35,10 @@ void maxFlow(vx_matrix i_adjGraph, vx_array o_minCutLabels);
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
 	const vx_uint32 src_width = src_image->width;
 	const vx_uint32 src_height = src_image->height;
-	const vx_uint32 dst_width = dst_image->width;
-	const vx_uint32 dst_height = dst_image->height;
+	const vx_uint32 trimap_width = trimap->width;
+	const vx_uint32 trimap_height = trimap->height;
 
-	if (src_width != dst_width || src_height != dst_height)
+	if (src_width != trimap_width || src_height != trimap_height)
 	{
 		return VX_ERROR_INVALID_PARAMETERS;
 	}
