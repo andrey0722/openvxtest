@@ -9,6 +9,16 @@ Date: 26 March 2016
 
 #include "../ref.h"
 
+/**  @brief Trimap classes of pixels
+     @detailed Each trimap class indicates, to which set: Tbg, Tfg or Tu
+	 some pixel is assigned.
+*/
+enum ETrimapClass {
+	TRIMAP_BGD = 1, ///< Background class
+	TRIMAP_FGD = 2, ///< Foreground class
+	TRIMAP_UNDEF = 4 ///< Undefined class
+};
+
 /**\brief Finds max flow and min cut in graph.
 
 \details This method implements an experimental max-flow algorithm
@@ -22,7 +32,7 @@ indicating, to which part of cut the vertex is assigned.
 */
 void maxFlow(vx_matrix i_adjGraph, vx_array o_minCutLabels);
 
-vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_image dst_image) {
+vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
 	const uint32_t src_width = src_image->width;
 	const uint32_t src_height = src_image->height;
 	const uint32_t dst_width = dst_image->width;

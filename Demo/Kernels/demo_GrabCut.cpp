@@ -32,6 +32,14 @@ private:
 		SET				// the rectangle is already drawn
 	};
 
+	/** @brief A copy of the same enumeration from
+	   'Lib\Kernels\ref\ref_GrabCutSegmentation.c' */
+	enum ETrimapClass {
+		TRIMAP_BGD = 1,
+		TRIMAP_FGD = 2,
+		TRIMAP_UNDEF = 4
+	};
+
 	virtual void execute() override;
 	void showOriginal();
 
@@ -122,7 +130,19 @@ void demo_GrabCut::VXGrabCut() {
 		VX_COLOR_SPACE_DEFAULT
 	};
 
-	ref_GrabCutSegmentation(&srcVXImage, &dstVXImage);
+	cv::Mat mask;
+	mask.create(m_imgSize, CV_8UC1);
+	mask.setTo(TRIMAP_BGD);
+	mask(m_rect).setTo(TRIMAP_UNDEF);
+
+	_vx_matrix trimap = {
+		mask.data,
+		m_imgSize.width,
+		m_imgSize.height,
+		VX_TYPE_UINT8
+	};
+
+	ref_GrabCutSegmentation(&srcVXImage, &trimap, &dstVXImage);
 
 	m_VXImage = cv::Mat(m_imgSize, CV_8UC3, dstVXImage.data);
 	cv::imshow(m_openVXWindow, m_VXImage);
@@ -180,6 +200,7 @@ void processMouse(int event, int x, int y, int, void *data) {
 			else {
 				demo->m_rect.height = 5;
 			}
+
 			demo->showOriginal();
 		}
 		break;
