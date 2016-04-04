@@ -107,7 +107,7 @@ void demo_GrabCut::CVGrabCut() {
 
 	cv::grabCut(m_srcImage, cvMask, m_rect, cvBgdModel, cvFgdModel, 1, cv::GC_INIT_WITH_RECT);
 
-	cv::Mat cvBinMask = cvMask & 1;
+	cv::Mat cvBinMask = cvMask & cv::GC_FGD;
 	m_srcImage.copyTo(m_CVImage, cvBinMask);
 	cv::imshow(m_openCVWindow, m_CVImage);
 }
@@ -189,6 +189,8 @@ void processMouse(int event, int x, int y, int, void *data) {
 			else {
 				demo->m_rect.width = 5;
 			}
+			demo->m_rect.x = std::max(0, demo->m_rect.x);
+			demo->m_rect.width = std::min(demo->m_rect.width, demo->m_imgSize.width - demo->m_rect.x);
 			if (y < demo->p.y) {
 				demo->m_rect.y = y;
 				demo->m_rect.height = demo->p.y - y;
@@ -200,6 +202,8 @@ void processMouse(int event, int x, int y, int, void *data) {
 			else {
 				demo->m_rect.height = 5;
 			}
+			demo->m_rect.y = std::max(0, demo->m_rect.y);
+			demo->m_rect.height = std::min(demo->m_rect.height, demo->m_imgSize.height - demo->m_rect.y);
 
 			demo->showOriginal();
 		}
