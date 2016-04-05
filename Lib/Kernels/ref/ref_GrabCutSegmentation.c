@@ -19,6 +19,13 @@ enum ETrimapClass {
 	TRIMAP_UNDEF = 4 ///< Undefined class
 };
 
+/** @brief Provides strict segmentation
+*/
+enum EMatteClass {
+	MATTE_BGD, ///< Background
+	MATTE_FGD  ///< Foreground
+};
+
 #pragma pack(push,1)
 
 /** @brief The RBG color model
@@ -62,6 +69,13 @@ typedef struct _param {
 */
 vx_uint32 euclidian_dist(const vx_RGB_color *z1, const vx_RGB_color *z2);
 
+
+/** @brief Initializes matte from the trimap.
+	@param [in,out]	p A pointer to all data
+
+*/
+void initMatte(param *p);
+
 /**\brief Finds max flow and min cut in graph.
 
 \details This method implements an experimental max-flow algorithm
@@ -102,6 +116,8 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	p.fgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
 	p.dist = euclidian_dist;
 
+	initMatte(&p);
+
 	vx_RGB_color* dst_data = (vx_RGB_color*)dst_image->data;
 	for (vx_uint32 i = 0; i < N; i++) {
 		dst_data[i] = p.px[i]; // Just copy
@@ -113,6 +129,12 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	free(p.GMM_index);
 
 	return VX_SUCCESS;
+}
+
+void initMatte(param *p) {
+	for (vx_uint32 i = 0; i < p->Npx; i++) {
+		p->matte[i] = (p->trimap[i] == TRIMAP_BGD) ? MATTE_BGD : MATTE_FGD;
+	}
 }
 
 #pragma warning(disable: 4100)
