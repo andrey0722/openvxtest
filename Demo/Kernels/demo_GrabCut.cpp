@@ -137,8 +137,8 @@ void demo_GrabCut::VXGrabCut() {
 
 	_vx_matrix trimap = {
 		mask.data,
-		m_imgSize.width,
 		m_imgSize.height,
+		m_imgSize.width,
 		VX_TYPE_UINT8
 	};
 
