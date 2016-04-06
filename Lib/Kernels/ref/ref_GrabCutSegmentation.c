@@ -69,12 +69,27 @@ typedef struct _param {
 */
 vx_uint32 euclidian_dist(const vx_RGB_color *z1, const vx_RGB_color *z2);
 
-
 /** @brief Initializes matte from the trimap.
 	@param [in,out]	p A pointer to all data
 
 */
 void initMatte(param *p);
+
+/** @brief Initialize random generator specifically with source image and user input
+	@detailed This function set random generator seed without using time() function, so
+		so the seed will be different on the different calls with similar input
+	@param [in] p A pointer to all data
+*/
+void initRnd(const param *p);
+
+/** @brief Initializes GMMs from matte
+	@detailed Uses k-means clustering method to divide pixels into K components
+		for given matte class well enough. Initial centroids are being selected
+		with k-means++ algorithm.
+	@param [in,out] p A pointer to all data
+	@param [in] matteClass A matte class to initialize corresponding GMM
+*/
+void initGmmComponents(param *p, int matteClass);
 
 /**\brief Finds max flow and min cut in graph.
 
@@ -116,7 +131,10 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	p.fgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
 	p.dist = euclidian_dist;
 
+	initRnd(&p);
 	initMatte(&p);
+	initGmmComponents(&p, MATTE_BGD);
+	initGmmComponents(&p, MATTE_FGD);
 
 	vx_RGB_color* dst_data = (vx_RGB_color*)dst_image->data;
 	for (vx_uint32 i = 0; i < N; i++) {
@@ -135,6 +153,104 @@ void initMatte(param *p) {
 	for (vx_uint32 i = 0; i < p->Npx; i++) {
 		p->matte[i] = (p->trimap[i] == TRIMAP_BGD) ? MATTE_BGD : MATTE_FGD;
 	}
+}
+
+void initRnd(const param *p) {
+	vx_uint8 *data = (vx_uint8*)p->px;
+	vx_uint32 seed = 0;
+	for (vx_uint32 i = 0; i < p->Npx; i++) {
+		if (p->matte[i] == MATTE_FGD) {
+			seed += data[i];
+		}
+	}
+	srand(seed);
+}
+
+void initGmmComponents(param *p, int matteClass) {
+
+	////////////////////////////////
+	/////////// k-means++ (Initial centroids selection)
+	////////////////////////////////
+
+	// Stores squares of distance from each pixel to the closest centroid
+	vx_uint32 *dists2 = (vx_uint32*)calloc(p->Npx, sizeof(vx_uint32));
+	// Stores coordinates of centroids
+	vx_RGB_color *centroids = (vx_RGB_color*)calloc(p->K, sizeof(vx_RGB_color));
+
+	centroids[0] = p->px[rand() % p->Npx]; // first centroid is random
+	for (vx_uint32 i = 1; i < p->K; i++) {
+		vx_uint32 sum2 = 0;		// Total sum of squared distances
+		for (vx_uint32 j = 0; j < p->Npx; j++) {
+			if (p->matte[j] == matteClass) {
+				dists2[j] = p->dist(p->px + j, centroids); // search for minimal distance
+				for (vx_uint32 m = 1; m < i; m++) {
+					vx_uint32 d = p->dist(p->px + j, centroids + m);
+					if (d < dists2[j]) {
+						dists2[j] = d;
+					}
+				}
+				sum2 += dists2[j];
+			}
+		}
+		// Some pixel will be the next centroid with probability
+		// proportional to it's squared distance from 'dists' array
+		vx_float64 rnd = (vx_float64)rand() / RAND_MAX * sum2; // Continious uniform distribution on [0 sum2)
+		vx_float64 nsum = 0; // Current sq sum accumulator
+		vx_uint32 j = 0;
+		for (; nsum < rnd; j++) {
+			if (p->matte[j] == matteClass) {
+				nsum += dists2[j];
+			}
+		}
+		// Here j is that random pixel
+		centroids[i] = p->px[j];
+	}
+
+	////////////////////////////////
+	/////////// k-means
+	////////////////////////////////
+
+	// Stores numbers of pixels, assigned to each centroid
+	vx_uint32 *pxCount = (vx_uint32*)calloc(p->K, sizeof(vx_uint32));
+	// Stores sums of pixels, assigned to each centroid
+	vx_uint32 *pxSum = (vx_uint32*)calloc(p->K, sizeof(vx_uint32) * 3);
+
+	// The amount of k-means iterations. 5 is enough for good start.
+	const vx_uint32 iterLimit = 5;
+
+	for (vx_uint32 iter = 0; iter < iterLimit; iter++) {
+		memset(pxCount, 0, sizeof(vx_uint32) * p->K);
+		memset(pxSum, 0, sizeof(vx_uint32) * 3 * p->K);
+		for (vx_uint32 i = 0; i < p->Npx; i++) {
+			if (p->matte[i] == matteClass) {
+				vx_uint32 bestCluster = 0; // The closest
+				vx_uint32 minDist = p->dist(p->px + i, centroids);
+				for (vx_uint32 j = 1; j < p->K; j++) {		// Search for the best cluster
+					vx_uint32 d = p->dist(p->px + i, centroids + j);
+					if (d < minDist) {
+						bestCluster = j;
+						minDist = d;
+					}
+				}
+				p->GMM_index[i] = bestCluster;
+				pxSum[bestCluster * 3 + 0] += p->px[i].r;
+				pxSum[bestCluster * 3 + 1] += p->px[i].g;
+				pxSum[bestCluster * 3 + 2] += p->px[i].b;
+				pxCount[bestCluster]++;
+			}
+		}
+		for (vx_uint32 i = 0; i < p->K; i++) {
+			// Move centroids to the mass center of clusters
+			centroids[i].r = (vx_uint8)(pxSum[i * 3 + 0] / pxCount[i]);
+			centroids[i].g = (vx_uint8)(pxSum[i * 3 + 1] / pxCount[i]);
+			centroids[i].b = (vx_uint8)(pxSum[i * 3 + 2] / pxCount[i]);
+		}
+	}
+
+	free(dists2);
+	free(pxCount);
+	free(pxSum);
+	free(centroids);
 }
 
 #pragma warning(disable: 4100)
