@@ -98,19 +98,6 @@ void initGmmComponents(param *p, int matteClass);
 */
 void learnGMMs(param *p, int matteClass);
 
-/**\brief Finds max flow and min cut in graph.
-
-\details This method implements an experimental max-flow algorithm
-by Yuri Boykov and Vladimir Kolmogorov.
-
-\param[in] i_adjGraph An input adjacency matrix (N+2)x(N+2) for the graph
-where N is number of graph vertices excluding terminals.
-\param[out] o_minCutLabels A byte array of length N to store labels,
-indicating, to which part of cut the vertex is assigned.
-0 means S set, 1 means T set.
-*/
-void maxFlow(vx_matrix i_adjGraph, vx_array o_minCutLabels);
-
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
 	const vx_uint32 src_width = src_image->width;
 	const vx_uint32 src_height = src_image->height;
@@ -339,11 +326,6 @@ void learnGMMs(param *p, int matteClass) {
 	free(sums);
 	free(prods);
 	free(counts);
-}
-
-#pragma warning(disable: 4100)
-void maxFlow(vx_matrix i_adjGraph, vx_array o_minCutLabels) {
-
 }
 
 vx_uint32 euclidian_dist(const vx_RGB_color *z1, const vx_RGB_color *z2) {
