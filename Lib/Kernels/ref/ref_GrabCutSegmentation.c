@@ -46,20 +46,6 @@ typedef struct _GmmComponent {
 	vx_float64 weight;			///< @brief The weight in GMM's weighted sum
 } GmmComponent;
 
-/** @brief Contains all GrabCut's data structures and values
-*/
-typedef struct _param {
-	vx_uint32 Npx;				///< @brief The number of pixels in the source image
-	vx_RGB_color *px;			///< @brief The source image pixel colors
-	vx_uint8 *trimap;			///< @brief Current algorithm's trimap
-	vx_uint8 *matte;			///< @brief Current algorithm's matte
-	vx_uint32 K;				///< @brief The number of GMM components for each matte class
-	vx_uint32 *GMM_index;		///< @brief Contains the index of the component to which each pixel is assigned
-	GmmComponent *bgdGMM;		///< @brief The background GMM 
-	GmmComponent *fgdGMM;		///< @brief THe foreground GMM
-	vx_uint32(*dist)(const vx_RGB_color*, const vx_RGB_color*); ///< @brief The distance function that is being used now
-} param;
-
 #pragma pack(pop)
 
 /** @brief Computes euclidian distance between pixels in RGB color space
@@ -70,33 +56,49 @@ typedef struct _param {
 vx_uint32 euclidian_dist(const vx_RGB_color *z1, const vx_RGB_color *z2);
 
 /** @brief Initializes matte from the trimap.
-	@param [in,out]	p A pointer to all data
+	@param [in] N The number of elements
+	@param [in] trimap Agorithm's trimap
+	@param [out] matte Algorithm's matte
 
 */
-void initMatte(param *p);
+void initMatte(vx_uint32 N, const vx_uint8 *trimap, vx_uint8 *matte);
 
 /** @brief Initialize random generator specifically with source image and user input
 	@detailed This function set random generator seed without using time() function, so
-		so the seed will be different on the different calls with similar input
-	@param [in] p A pointer to all data
+		so the seed will be different on the different calls with similar input.
+	@param [in] N The number of pixels
+	@param [in] data Source pixel colors, 1-by-N array
+	@param [in] matte Algorithm's matte, 1-by-N array
 */
-void initRnd(const param *p);
+void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *matte);
 
 /** @brief Initializes GMMs from matte
 	@detailed Uses k-means clustering method to divide pixels into K components
 		for given matte class well enough. Initial centroids are being selected
 		with k-means++ algorithm.
-	@param [in,out] p A pointer to all data
+	@param [in] N The number of pixels
+	@param [in] K The number of GMM components for each GMM
+	@param [in] px Source pixels, 1-by-N array
+	@param [out] gmm_index GMM components indexes, assigned to each pixel, 1-by-N array
+	@param [in] matte Algorithm's matte, 1-by-N array
 	@param [in] matteClass A matte class to initialize corresponding GMM
 */
-void initGmmComponents(param *p, int matteClass);
+void initGmmComponents(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
+					   vx_uint32 *gmm_index, const vx_uint8 *matte, vx_uint8 matteClass);
 
 /** @brief Computes all required numerical characteristics of the GMM components.
 		Does process only GMM, corresponding to given matte class
-	@param [in,out] p A pointer to all data
+	@param [in] N The number of pixels
+	@param [in] K The number of GMM components for each GMM
+	@param [in] px Source pixels, 1-by-N array
+	@param [in] gmm_index GMM components indexes, assigned to each pixel, 1-by-N array
+	@param [out] gmm GMM component, whose characteristics are to be computed, 1-by-K array
+	@param [in] matte Algorithm's matte, 1-by-N array
 	@param [in] matteClass A matte class to learn corresponding GMM parameters
 */
-void learnGMMs(param *p, int matteClass);
+void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
+			   const vx_uint32 *gmm_index, GmmComponent *gmm,
+			   const vx_uint8 *matte, vx_uint8 matteClass);
 
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
 	const vx_uint32 src_width = src_image->width;
@@ -112,76 +114,83 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 		return VX_ERROR_INVALID_PARAMETERS;
 	}
 
+	// The number of pixels
 	vx_uint32 N = src_width * src_height;
+	// The number of GMM components for each GMM
 	vx_uint32 K = 5;
-	param p;
-	p.Npx = N;
-	p.px = (vx_RGB_color*)src_image->data;
-	p.trimap = (vx_uint8*)trimap->data;
-	p.matte = (vx_uint8*)calloc(N, sizeof(vx_uint32));
-	p.K = K;
-	p.GMM_index = (vx_uint32*)calloc(N, sizeof(vx_uint32));
-	p.bgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
-	p.fgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
-	p.dist = euclidian_dist;
+	// Pixels' colors
+	vx_RGB_color *px = (vx_RGB_color*)src_image->data;
+	// The trimap, indicates pixels separation
+	vx_uint8 *trimap_data = (vx_uint8*)trimap->data;
+	// The matte, indicates current segmentation
+	vx_uint8 *matte = (vx_uint8*)calloc(N, sizeof(vx_uint32));
+	// GMM components indexes, assigned to each pixel
+	vx_uint32 *GMM_index = (vx_uint32*)calloc(N, sizeof(vx_uint32));
+	// Background GMM
+	GmmComponent *bgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
+	// Foreground GMM
+	GmmComponent *fgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
 
-	initRnd(&p);
-	initMatte(&p);
-	initGmmComponents(&p, MATTE_BGD);
-	initGmmComponents(&p, MATTE_FGD);
+	initRnd(N, px, matte);
+	initMatte(N, trimap_data, matte);
+	initGmmComponents(N, K, px, GMM_index, matte, MATTE_BGD);
+	initGmmComponents(N, K, px, GMM_index, matte, MATTE_FGD);
 
-	learnGMMs(&p, MATTE_BGD);
-	learnGMMs(&p, MATTE_FGD);
+	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
+	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_FGD);
 
 	vx_RGB_color* dst_data = (vx_RGB_color*)dst_image->data;
 	for (vx_uint32 i = 0; i < N; i++) {
-		dst_data[i] = p.px[i]; // Just copy
+		dst_data[i] = px[i]; // Just copy
 	}
 
-	free(p.bgdGMM);
-	free(p.fgdGMM);
-	free(p.matte);
-	free(p.GMM_index);
+	free(bgdGMM);
+	free(fgdGMM);
+	free(matte);
+	free(GMM_index);
 
 	return VX_SUCCESS;
 }
 
-void initMatte(param *p) {
-	for (vx_uint32 i = 0; i < p->Npx; i++) {
-		p->matte[i] = (p->trimap[i] == TRIMAP_BGD) ? MATTE_BGD : MATTE_FGD;
+void initMatte(vx_uint32 N, const vx_uint8 *trimap, vx_uint8 *matte) {
+	for (vx_uint32 i = 0; i < N; i++) {
+		matte[i] = (trimap[i] == TRIMAP_BGD) ? MATTE_BGD : MATTE_FGD;
 	}
 }
 
-void initRnd(const param *p) {
-	vx_uint8 *data = (vx_uint8*)p->px;
+void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *matte) {
 	vx_uint32 seed = 0;
-	for (vx_uint32 i = 0; i < p->Npx; i++) {
-		if (p->matte[i] == MATTE_FGD) {
-			seed += data[i];
+	for (vx_uint32 i = 0; i < N; i++) {
+		if (matte[i] == MATTE_FGD) {
+			seed += data[i].b;
+			seed += data[i].g;
+			seed += data[i].r;
 		}
 	}
 	srand(seed);
 }
 
-void initGmmComponents(param *p, int matteClass) {
+void initGmmComponents(vx_uint32 N, vx_uint32 K,
+					   const vx_RGB_color *px, vx_uint32 *gmm_index,
+					   const vx_uint8 *matte, vx_uint8 matteClass) {
 
 	////////////////////////////////
 	/////////// k-means++ (Initial centroids selection)
 	////////////////////////////////
 
 	// Stores squares of distance from each pixel to the closest centroid
-	vx_uint32 *dists2 = (vx_uint32*)calloc(p->Npx, sizeof(vx_uint32));
+	vx_uint32 *dists2 = (vx_uint32*)calloc(N, sizeof(vx_uint32));
 	// Stores coordinates of centroids
-	vx_RGB_color *centroids = (vx_RGB_color*)calloc(p->K, sizeof(vx_RGB_color));
+	vx_RGB_color *centroids = (vx_RGB_color*)calloc(K, sizeof(vx_RGB_color));
 
-	centroids[0] = p->px[rand() % p->Npx]; // first centroid is random
-	for (vx_uint32 i = 1; i < p->K; i++) {
+	centroids[0] = px[rand() % N]; // first centroid is random
+	for (vx_uint32 i = 1; i < K; i++) {
 		vx_uint32 sum2 = 0;		// Total sum of squared distances
-		for (vx_uint32 j = 0; j < p->Npx; j++) {
-			if (p->matte[j] == matteClass) {
-				dists2[j] = p->dist(p->px + j, centroids); // search for minimal distance
+		for (vx_uint32 j = 0; j < N; j++) {
+			if (matte[j] == matteClass) {
+				dists2[j] = euclidian_dist(px + j, centroids); // search for minimal distance
 				for (vx_uint32 m = 1; m < i; m++) {
-					vx_uint32 d = p->dist(p->px + j, centroids + m);
+					vx_uint32 d = euclidian_dist(px + j, centroids + m);
 					if (d < dists2[j]) {
 						dists2[j] = d;
 					}
@@ -195,12 +204,12 @@ void initGmmComponents(param *p, int matteClass) {
 		vx_float64 nsum = 0; // Current sq sum accumulator
 		vx_uint32 j = 0;
 		for (; nsum < rnd; j++) {
-			if (p->matte[j] == matteClass) {
+			if (matte[j] == matteClass) {
 				nsum += dists2[j];
 			}
 		}
 		// Here j is that random pixel
-		centroids[i] = p->px[j];
+		centroids[i] = px[j];
 	}
 
 	////////////////////////////////
@@ -208,35 +217,35 @@ void initGmmComponents(param *p, int matteClass) {
 	////////////////////////////////
 
 	// Stores numbers of pixels, assigned to each centroid
-	vx_uint32 *pxCount = (vx_uint32*)calloc(p->K, sizeof(vx_uint32));
+	vx_uint32 *pxCount = (vx_uint32*)calloc(K, sizeof(vx_uint32));
 	// Stores sums of pixels, assigned to each centroid
-	vx_uint32 *pxSum = (vx_uint32*)calloc(p->K, sizeof(vx_uint32) * 3);
+	vx_uint32 *pxSum = (vx_uint32*)calloc(K, sizeof(vx_uint32) * 3);
 
 	// The amount of k-means iterations. 5 is enough for good start.
 	const vx_uint32 iterLimit = 5;
 
 	for (vx_uint32 iter = 0; iter < iterLimit; iter++) {
-		memset(pxCount, 0, sizeof(vx_uint32) * p->K);
-		memset(pxSum, 0, sizeof(vx_uint32) * 3 * p->K);
-		for (vx_uint32 i = 0; i < p->Npx; i++) {
-			if (p->matte[i] == matteClass) {
+		memset(pxCount, 0, sizeof(vx_uint32) * K);
+		memset(pxSum, 0, sizeof(vx_uint32) * 3 * K);
+		for (vx_uint32 i = 0; i < N; i++) {
+			if (matte[i] == matteClass) {
 				vx_uint32 bestCluster = 0; // The closest
-				vx_uint32 minDist = p->dist(p->px + i, centroids);
-				for (vx_uint32 j = 1; j < p->K; j++) {		// Search for the best cluster
-					vx_uint32 d = p->dist(p->px + i, centroids + j);
+				vx_uint32 minDist = euclidian_dist(px + i, centroids);
+				for (vx_uint32 j = 1; j < K; j++) {		// Search for the best cluster
+					vx_uint32 d = euclidian_dist(px + i, centroids + j);
 					if (d < minDist) {
 						bestCluster = j;
 						minDist = d;
 					}
 				}
-				p->GMM_index[i] = bestCluster;
-				pxSum[bestCluster * 3 + 0] += p->px[i].r;
-				pxSum[bestCluster * 3 + 1] += p->px[i].g;
-				pxSum[bestCluster * 3 + 2] += p->px[i].b;
+				gmm_index[i] = bestCluster;
+				pxSum[bestCluster * 3 + 0] += px[i].r;
+				pxSum[bestCluster * 3 + 1] += px[i].g;
+				pxSum[bestCluster * 3 + 2] += px[i].b;
 				pxCount[bestCluster]++;
 			}
 		}
-		for (vx_uint32 i = 0; i < p->K; i++) {
+		for (vx_uint32 i = 0; i < K; i++) {
 			// Move centroids to the mass center of clusters
 			centroids[i].r = (vx_uint8)(pxSum[i * 3 + 0] / pxCount[i]);
 			centroids[i].g = (vx_uint8)(pxSum[i * 3 + 1] / pxCount[i]);
@@ -250,32 +259,31 @@ void initGmmComponents(param *p, int matteClass) {
 	free(centroids);
 }
 
-void learnGMMs(param *p, int matteClass) {
+void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
+			   const vx_uint32 *gmm_index, GmmComponent *gmm,
+			   const vx_uint8 *matte, vx_uint8 matteClass) {
 
 	// Stores sums of color components in every GMM component
-	vx_uint32 *sums = (vx_uint32*)calloc(p->K * 3, sizeof(vx_uint32));
+	vx_uint32 *sums = (vx_uint32*)calloc(K * 3, sizeof(vx_uint32));
 	// Stores sums of productions of all pairs of color components in every GMM component
-	vx_uint32 *prods = (vx_uint32*)calloc(p->K * 9, sizeof(vx_uint32));
+	vx_uint32 *prods = (vx_uint32*)calloc(K * 9, sizeof(vx_uint32));
 	// Stores the number of pixels in each GMM component
-	vx_uint32 *counts = (vx_uint32*)calloc(p->K, sizeof(vx_uint32));
+	vx_uint32 *counts = (vx_uint32*)calloc(K, sizeof(vx_uint32));
 	// Stores total number of pixels in this GMM
 	vx_uint32 counts_total;
 
-	memset(sums, 0, p->K * 3 * sizeof(vx_uint32));
-	memset(prods, 0, p->K * 9 * sizeof(vx_uint32));
-	memset(counts, 0, p->K * sizeof(vx_uint32));
+	memset(sums, 0, K * 3 * sizeof(vx_uint32));
+	memset(prods, 0, K * 9 * sizeof(vx_uint32));
+	memset(counts, 0, K * sizeof(vx_uint32));
 	counts_total = 0;
 
-	// Choose corresponding GMM
-	GmmComponent *gmm = (matteClass == MATTE_BGD) ? p->bgdGMM : p->fgdGMM;
-
 	// Accumulating
-	for (vx_uint32 k = 0; k < p->Npx; k++) {
-		if (p->matte[k] != matteClass) {
+	for (vx_uint32 k = 0; k < N; k++) {
+		if (matte[k] != matteClass) {
 			continue;		// Only given matte class
 		}
-		vx_uint32 comp = p->GMM_index[k];
-		vx_uint8 *color = (vx_uint8*)(p->px + k);
+		vx_uint32 comp = gmm_index[k];
+		vx_uint8 *color = (vx_uint8*)(px + k);
 		for (vx_uint8 i = 0; i < 3; i++) {
 			sums[comp * 3 + i] += color[i];
 		}
@@ -289,7 +297,7 @@ void learnGMMs(param *p, int matteClass) {
 	}
 
 	// Computing parameters
-	for (vx_uint32 comp = 0; comp < p->K; comp++) {
+	for (vx_uint32 comp = 0; comp < K; comp++) {
 		GmmComponent *gc = gmm + comp;
 		vx_float64 cov[3][3];	// covariance matrix, just local
 		for (vx_uint32 i = 0; i < 3; i++) {		// mean colors
