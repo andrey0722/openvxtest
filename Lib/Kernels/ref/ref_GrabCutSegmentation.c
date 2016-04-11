@@ -46,6 +46,15 @@ typedef struct _GmmComponent {
 	vx_float64 weight;			///< @brief The weight in GMM's weighted sum
 } GmmComponent;
 
+/** @brief Represents M-by-N sparse matrix using Compressed Sparse Row (CSR) format.
+		Stores P non-zero elements of type vx_float64
+*/
+typedef struct _vx_sparse_matrix {
+	vx_float64 *data;	///< @brief Non-zero elements of the sparse matrix, 1-by-P array
+	vx_uint32 *nz;		///< @brief The number of non-zero elements in previous rows, 1-by-M array
+	vx_uint32 *col;		///< @brief Column indexes of corresponding elements from 'data', 1-by-P array
+} vx_sparse_matrix;
+
 #pragma pack(pop)
 
 /** @brief Computes euclidian distance between pixels in RGB color space
@@ -100,6 +109,74 @@ void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
 			   const vx_uint32 *gmm_index, GmmComponent *gmm,
 			   const vx_uint8 *matte, vx_uint8 matteClass);
 
+/** @brief Computes the 'beta' parameter of the algorithm.
+	@param [in] data Image's pixel colors, height-by-width array
+	@param [in] width The width of image
+	@param [in] height The height of image
+	@return Returns the value of beta.
+*/
+vx_float64 computeBeta(const vx_RGB_color *data, vx_uint32 width, vx_uint32 height);
+
+/** @brief Computes the maximum weight of the graph edge,
+		that is obviously not less than any another.
+	@param [in] N The number of pixels
+	@param [in] adj_graph The sparse adjacency matrix for graph
+	@return Returns value of max-weight.
+*/
+vx_float64 computeMaxWeight(vx_uint32 N, const vx_sparse_matrix *adj_graph);
+
+/** @brief Sets N-links in the given graph for the source image.
+	@detailed N-links are the links between neighbouring pixels in image.
+			8-neighbourhood scheme is used.
+	@param [in] data Image's pixel colors, 1-by-(width*height) array
+	@param [in] width The width of image
+	@param [in] height The height of image
+	@param [in] matte Algorithm's matte, 1-by-N array
+	@param [in] gamma Parameter of the algorithm
+	@param [in] beta Parameter of the algorithm
+	@param [in,out] adj_graph An adjacency matrix (N+2)-by-(N+2)
+*/
+void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
+					vx_uint32 height, const vx_uint8 *matte,
+					vx_float64 gamma, vx_float64 beta, vx_sparse_matrix *adj_graph);
+
+/** @brief Allocates required memory for the non-zero elements of the original matrix
+	@param [in,out] mat An empty sparse matrix
+	@param [in] NNZ The number of non-zero elements in matrix
+	@param [in] N The number of rows in the original matrix
+*/
+void buildSparse(vx_sparse_matrix *mat, vx_uint32 NNZ, vx_uint32 N);
+
+/** @brief Deallocates memory of given sparse matrix
+	@param [in,out] mat A non-empty sparse matrix
+*/
+void destructSparse(vx_sparse_matrix *mat);
+
+/** @brief Computes value that defines likelihood of
+		belonging given color to particular GMM
+	@param [in] K The number of components in given GMM
+	@param [in] gmm The GMM, consisting of K components
+	@param [in] color A pointer to RGB color
+	@return Returns described value
+*/
+vx_float64 computeGmmDataTerm(vx_uint32 K, const GmmComponent *gmm, const vx_RGB_color *color);
+
+/** @brief Sets N-links in the given graph for the source image.
+	@detailed T-links are links between pixels and
+		terminals - source and sink of the network.
+	@param [in] N The number of pixels
+	@param [in] K The number of GMM components for each GMM
+	@param [in] data Image's pixel colors, 1-by-N array
+	@param [in] bgdGMM The background GMM
+	@param [in] fgdGMM The foreground GMM
+	@param [in] trimap The algorithm's trimap
+	@param [in] maxWeight Parameter of the algorithm, pretty large
+	@param [in,out] adj_graph An adjacency matrix (N+2)-by-(N+2)
+*/
+void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data,
+						   const GmmComponent *bgdGMM, const GmmComponent *fgdGMM,
+						   const vx_uint8 *trimap, vx_float64 maxWeight, vx_sparse_matrix *adj_graph);
+
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
 	const vx_uint32 src_width = src_image->width;
 	const vx_uint32 src_height = src_image->height;
@@ -130,20 +207,27 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	GmmComponent *bgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
 	// Foreground GMM
 	GmmComponent *fgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
+	vx_sparse_matrix adj_graph;
 
 	initRnd(N, px, matte);
 	initMatte(N, trimap_data, matte);
+	vx_float64 gamma = 50;
+	vx_float64 beta = computeBeta(px, src_width, src_height);
+	setGraphNLinks(px, src_width, src_height, matte, gamma, beta, &adj_graph);
+	vx_float64 maxWeight = computeMaxWeight(N, &adj_graph);
 	initGmmComponents(N, K, px, GMM_index, matte, MATTE_BGD);
 	initGmmComponents(N, K, px, GMM_index, matte, MATTE_FGD);
 
 	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
 	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_FGD);
+	setGraphTLinks(N, K, px, bgdGMM, fgdGMM, trimap_data, maxWeight, &adj_graph);
 
 	vx_RGB_color* dst_data = (vx_RGB_color*)dst_image->data;
 	for (vx_uint32 i = 0; i < N; i++) {
 		dst_data[i] = px[i]; // Just copy
 	}
 
+	destructSparse(&adj_graph);
 	free(bgdGMM);
 	free(fgdGMM);
 	free(matte);
@@ -341,4 +425,236 @@ vx_uint32 euclidian_dist(const vx_RGB_color *z1, const vx_RGB_color *z2) {
 	vx_uint8 d2 = (z1->g - z2->g > 0) ? z1->g - z2->g : z2->g - z1->g;
 	vx_uint8 d3 = (z1->b - z2->b > 0) ? z1->b - z2->b : z2->b - z1->b;
 	return d1*d1 + d2*d2 + d3*d3;
+}
+
+vx_float64 computeBeta(const vx_RGB_color *data, vx_uint32 width, vx_uint32 height) {
+	vx_uint32 sum = 0;
+	vx_uint32 count = 0;
+	for (vx_uint32 i = 0; i < height; i++) {
+		for (vx_uint32 j = 0; j < width; j++) {
+			const vx_RGB_color *current = data + i * width + j;
+			if (j < width - 1) {
+				sum += euclidian_dist(current, current + 1); // right
+				count++;
+			}
+			if (i < height - 1) {
+				if (j > 0) {
+					sum += euclidian_dist(current, current + width - 1); // bottom-left
+					count++;
+				}
+				sum += euclidian_dist(current, current + width); // bottom
+				count++;
+				if (j < width - 1) {
+					sum += euclidian_dist(current, current + width + 1); // bottom-right
+					count++;
+				}
+			}
+		}
+	}
+	return 1 / ((vx_float64)sum / count * 2);
+}
+
+void buildSparse(vx_sparse_matrix *mat, vx_uint32 NNZ, vx_uint32 N) {
+	mat->data = (vx_float64*)calloc(NNZ, sizeof(vx_float64));
+	mat->nz = (vx_uint32*)calloc(N + 1, sizeof(vx_uint32));
+	mat->col = (vx_uint32*)calloc(NNZ, sizeof(vx_uint32));
+
+	memset(mat->data, 0, NNZ * sizeof(vx_float64));
+	memset(mat->nz, 0, (N + 1) * sizeof(vx_uint32));
+	memset(mat->col, 0, NNZ * sizeof(vx_uint32));
+}
+
+void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
+					vx_uint32 height, const vx_uint8 *matte,
+					vx_float64 gamma, vx_float64 beta, vx_sparse_matrix *adj_graph) {
+
+	vx_float64 sqrt_2 = sqrt(2);
+	vx_uint32 N = width * height;
+	vx_uint32 source = N;
+	vx_uint32 sink = N + 1;
+
+	vx_uint32 NNZ_total = (4 * width * height - 3 * (width + height) - 1) * 2 + 2 * N;
+	buildSparse(adj_graph, NNZ_total, N + 1);
+
+	vx_uint32 NNZ_cur = 0;
+	for (vx_uint32 i = 0; i < N; i++) {
+		vx_uint32 row = i / width;
+		vx_uint32 col = i % width;
+
+		if (row > 0) {		// top side
+			if (col > 0) {
+				vx_uint32 other = i - width - 1;	// top-left
+				if (matte[i] == matte[other]) {
+					vx_uint32 other_pos = 0;
+					while (adj_graph->col[adj_graph->nz[other] + other_pos] != i) {
+						other_pos++;
+					}
+					vx_float64 weight = adj_graph->data[adj_graph->nz[other] + other_pos];
+					adj_graph->data[NNZ_cur] = weight;
+					adj_graph->col[NNZ_cur] = other;
+					NNZ_cur++;
+				}
+			}
+
+			vx_uint32 other = i - width;	// top
+			if (matte[i] == matte[other]) {
+				vx_uint32 other_pos = 0;
+				while (adj_graph->col[adj_graph->nz[other] + other_pos] != i) {
+					other_pos++;
+				}
+				vx_float64 weight = adj_graph->data[adj_graph->nz[other] + other_pos];
+				adj_graph->data[NNZ_cur] = weight;
+				adj_graph->col[NNZ_cur] = other;
+				NNZ_cur++;
+			}
+
+			if (col < width - 1) {
+				vx_uint32 other = i - width + 1;	// top-right
+				if (matte[i] == matte[other]) {
+					vx_uint32 other_pos = 0;
+					while (adj_graph->col[adj_graph->nz[other] + other_pos] != i) {
+						other_pos++;
+					}
+					vx_float64 weight = adj_graph->data[adj_graph->nz[other] + other_pos];
+					adj_graph->data[NNZ_cur] = weight;
+					adj_graph->col[NNZ_cur] = other;
+					NNZ_cur++;
+				}
+			}
+		}
+		if (col > 0) {
+			vx_uint32 other = i - 1;	// left
+			if (matte[i] == matte[other]) {
+				vx_uint32 other_pos = 0;
+				while (adj_graph->col[adj_graph->nz[other] + other_pos] != i) {
+					other_pos++;
+				}
+				vx_float64 weight = adj_graph->data[adj_graph->nz[other] + other_pos];
+				adj_graph->data[NNZ_cur] = weight;
+				adj_graph->col[NNZ_cur] = other;
+				NNZ_cur++;
+			}
+		}
+
+		if (col < width - 1) {
+			vx_uint32 other = i + 1;	// right
+			if (matte[i] == matte[other]) {
+				vx_float64 weight = gamma * exp(-beta * euclidian_dist(data + i, data + other));
+				adj_graph->data[NNZ_cur] = weight;
+				adj_graph->col[NNZ_cur] = other;
+				NNZ_cur++;
+			}
+		}
+		if (row < height - 1) {		// bottom side
+			if (col > 0) {
+				vx_uint32 other = i + width - 1;	// bottom-left
+				if (matte[i] == matte[other]) {
+					vx_float64 weight = gamma * exp(-beta * euclidian_dist(data + i, data + other)) / sqrt_2;
+					adj_graph->data[NNZ_cur] = weight;
+					adj_graph->col[NNZ_cur] = other;
+					NNZ_cur++;
+				}
+			}
+
+			vx_uint32 other = i + width;	// bottom
+			if (matte[i] == matte[other]) {
+				vx_float64 weight = gamma * exp(-beta * euclidian_dist(data + i, data + other));
+				adj_graph->data[NNZ_cur] = weight;
+				adj_graph->col[NNZ_cur] = other;
+				NNZ_cur++;
+			}
+
+			if (col < width - 1) {
+				vx_uint32 other = i + width + 1;	// bottom-right
+				if (matte[i] == matte[other]) {
+					vx_float64 weight = gamma * exp(-beta * euclidian_dist(data + i, data + other)) / sqrt_2;
+					adj_graph->data[NNZ_cur] = weight;
+					adj_graph->col[NNZ_cur] = other;
+					NNZ_cur++;
+				}
+			}
+		}
+
+		adj_graph->col[NNZ_cur] = sink;		// init t-link to sink 
+		NNZ_cur++;
+
+		adj_graph->nz[i + 1] = NNZ_cur;
+	}
+
+	// init t-links from source
+	adj_graph->nz[source + 1] = NNZ_cur + N;
+	for (vx_uint32 i = 0; i < N; i++) {
+		adj_graph->col[NNZ_cur + i] = i;
+	}
+}
+
+void destructSparse(vx_sparse_matrix *mat) {
+	free(mat->data);
+	free(mat->nz);
+	free(mat->col);
+}
+
+vx_float64 computeMaxWeight(vx_uint32 N, const vx_sparse_matrix *adj_graph) {
+	vx_float64 maxSum = 0;
+	for (vx_uint32 i = 0; i < N; i++) { // Search for max links sum in row
+		vx_float64 sum = 0;
+		for (vx_uint32 j = adj_graph->nz[i]; j < adj_graph->nz[i + 1]; j++) {
+			sum += adj_graph->data[j];
+		}
+		if (sum > maxSum) {
+			maxSum = sum;
+		}
+	}
+	return 1 + maxSum;
+}
+
+vx_float64 computeGmmDataTerm(vx_uint32 K, const GmmComponent *gmm, const vx_RGB_color *color) {
+	vx_uint8 *clr = (vx_uint8*)color;
+	vx_float64 result = 0.0f;
+	for (const GmmComponent *comp = gmm; comp < gmm + K; comp++) {
+		vx_float64 prod = 0.0f;
+		for (vx_uint32 i = 0; i < 3; i++) {
+			for (vx_uint32 j = 0; j < 3; j++) {
+				prod += (clr[i] - comp->mean[i]) * (clr[j] - comp->mean[j]) * comp->inv_cov[i][j];
+			}
+		}
+		result += comp->weight / sqrt(comp->cov_det) * exp(0.5f * prod);
+	}
+	return result;
+}
+
+void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data, const GmmComponent *bgdGMM,
+					const GmmComponent *fgdGMM, const vx_uint8 *trimap,
+					vx_float64 maxWeight, vx_sparse_matrix *adj_graph) {
+
+	vx_uint32 source = N;
+	vx_uint32 sink = N + 1;
+
+	for (vx_uint32 i = 0; i < N; i++) {
+		vx_float64 fromSouce = 0;
+		vx_float64 toSink = 0;
+		switch (trimap[i]) {
+		case TRIMAP_BGD:		// Background
+			fromSouce = 0;
+			toSink = maxWeight;
+			break;
+		case TRIMAP_FGD:		// Foreground
+			fromSouce = maxWeight;
+			toSink = 0;
+			break;
+		case TRIMAP_UNDEF:		// Undefined
+			fromSouce = computeGmmDataTerm(K, bgdGMM, data + i);
+			toSink = computeGmmDataTerm(K, fgdGMM, data + i);
+			break;
+		}
+
+		vx_uint32 sourcePos = adj_graph->nz[source] + i;
+		vx_uint32 sinkPos = adj_graph->nz[i];
+		while (adj_graph->col[sinkPos] != sink) {
+			sinkPos++;
+		}
+
+		adj_graph->data[sourcePos] = fromSouce;
+		adj_graph->data[sinkPos] = toSink;
+	}
 }
