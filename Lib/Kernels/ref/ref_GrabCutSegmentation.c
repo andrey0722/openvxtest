@@ -219,7 +219,7 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	initGmmComponents(N, K, px, GMM_index, matte, MATTE_FGD);
 
 	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
-	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_FGD);
+	learnGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
 	setGraphTLinks(N, K, px, bgdGMM, fgdGMM, trimap_data, maxWeight, &adj_graph);
 
 	vx_RGB_color* dst_data = (vx_RGB_color*)dst_image->data;
