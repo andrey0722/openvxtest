@@ -200,7 +200,7 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	// The trimap, indicates pixels separation
 	vx_uint8 *trimap_data = (vx_uint8*)trimap->data;
 	// The matte, indicates current segmentation
-	vx_uint8 *matte = (vx_uint8*)calloc(N, sizeof(vx_uint32));
+	vx_uint8 *matte = (vx_uint8*)calloc(N, sizeof(vx_uint8));
 	// GMM components indexes, assigned to each pixel
 	vx_uint32 *GMM_index = (vx_uint32*)calloc(N, sizeof(vx_uint32));
 	// Background GMM
