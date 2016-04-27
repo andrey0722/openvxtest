@@ -269,39 +269,44 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 	/////////// k-means++ (Initial centroids selection)
 	////////////////////////////////
 
-	// Stores squares of distance from each pixel to the closest centroid
-	vx_uint32 *dists2 = (vx_uint32*)calloc(N, sizeof(vx_uint32));
+	// Stores distances from each pixel to the closest centroid
+	vx_float64 *dists = (vx_float64*)calloc(N, sizeof(vx_float64));
 	// Stores coordinates of centroids
-	vx_RGB_color *centroids = (vx_RGB_color*)calloc(K, sizeof(vx_RGB_color));
+	vx_float64 *centroids = (vx_float64*)calloc(K, sizeof(vx_float64) * 3);
 
-	centroids[0] = px[rand() % N]; // first centroid is random
+	vx_uint32 rndFirst = rand() % N; // first centroid is random
+	centroids[0] = px[rndFirst].b;
+	centroids[1] = px[rndFirst].g;
+	centroids[2] = px[rndFirst].r;
 	for (vx_uint32 i = 1; i < K; i++) {
-		vx_uint32 sum2 = 0;		// Total sum of squared distances
+		vx_float64 sum = 0;		// Total sum of distances
 		for (vx_uint32 j = 0; j < N; j++) {
 			if (matte[j] == matteClass) {
                 const vx_uint8 *cur_px = (const vx_uint8*)(px + j);
-                dists2[j] = euclidian_dist_ii(cur_px, (vx_uint8*)centroids); // search for minimal distance
+                dists[j] = sqrt(euclidian_dist_if(cur_px, centroids)); // search for minimal distance
 				for (vx_uint32 m = 1; m < i; m++) {
-                    vx_uint32 d = euclidian_dist_ii(cur_px, (vx_uint8*)(centroids + m));
-					if (d < dists2[j]) {
-						dists2[j] = d;
+                    vx_float64 d = sqrt(euclidian_dist_if(cur_px, centroids + m * 3));
+					if (d < dists[j]) {
+						dists[j] = d;
 					}
 				}
-				sum2 += dists2[j];
+				sum += dists[j];
 			}
 		}
 		// Some pixel will be the next centroid with probability
 		// proportional to it's squared distance from 'dists' array
-		vx_float64 rnd = (vx_float64)rand() / RAND_MAX * sum2; // Continious uniform distribution on [0 sum2)
+		vx_float64 rnd = (vx_float64)rand() / RAND_MAX * sum; // Continious uniform distribution on [0 sum2)
 		vx_float64 nsum = 0; // Current sq sum accumulator
 		vx_uint32 j = 0;
 		for (; nsum < rnd; j++) {
 			if (matte[j] == matteClass) {
-				nsum += dists2[j];
+				nsum += dists[j];
 			}
 		}
 		// Here j is that random pixel
-		centroids[i] = px[j];
+        centroids[i * 3 + 0] = px[j].b;
+        centroids[i * 3 + 1] = px[j].g;
+        centroids[i * 3 + 2] = px[j].r;
 	}
 
 	////////////////////////////////
@@ -323,9 +328,9 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 			if (matte[i] == matteClass) {
 				vx_uint32 bestCluster = 0; // The closest
                 const vx_uint8 *cur_px = (const vx_uint8*)(px + i);
-                vx_uint32 minDist = euclidian_dist_ii(cur_px, (vx_uint8*)centroids);
+                vx_float64 minDist = sqrt(euclidian_dist_if(cur_px, centroids));
 				for (vx_uint32 j = 1; j < K; j++) {		// Search for the best cluster
-					vx_uint32 d = euclidian_dist_ii(cur_px, (vx_uint8*)(centroids + j));
+					vx_float64 d = sqrt(euclidian_dist_if(cur_px, centroids + j));
 					if (d < minDist) {
 						bestCluster = j;
 						minDist = d;
@@ -338,15 +343,48 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 				pxCount[bestCluster]++;
 			}
 		}
+
+        // Looking for empty clusters
+        for (vx_uint32 i = 0; i < K; i++) {
+            if (pxCount[i] > 0) {
+                continue;
+            }
+
+            vx_uint32 maxCluster = 0;
+            vx_uint32 maxCnt = 0;
+            for (vx_uint32 j = 0; j < K; j++) {     // Search for the most fat cluster
+                if (pxCount[j] > maxCnt) {
+                    maxCnt = pxCount[j];
+                    maxCluster = j;
+                }
+            }
+
+            vx_uint32 farthestPx = 0;
+            vx_float64 maxDist = 0;
+            for (vx_uint32 j = 0; j < N; j++) {         // And move the farthest pixel to the empty
+                if (matte[j] == matteClass && gmm_index[j] == maxCluster) {
+                    vx_float64 d = euclidian_dist_if((vx_uint8*)(px + j), centroids + maxCluster * 3);
+                    if (d > maxDist) {
+                        maxDist = d;
+                        farthestPx = j;
+                    }
+                }
+            }
+
+            pxCount[maxCluster]--;
+            pxCount[i]++;
+            gmm_index[farthestPx] = i;
+        }
+
 		for (vx_uint32 i = 0; i < K; i++) {
 			// Move centroids to the mass center of clusters
-			centroids[i].r = (vx_uint8)(pxSum[i * 3 + 0] / pxCount[i]);
-			centroids[i].g = (vx_uint8)(pxSum[i * 3 + 1] / pxCount[i]);
-			centroids[i].b = (vx_uint8)(pxSum[i * 3 + 2] / pxCount[i]);
+            centroids[i * 3 + 0] = (vx_float64)pxSum[i * 3 + 0] / pxCount[i];
+            centroids[i * 3 + 1] = (vx_float64)pxSum[i * 3 + 1] / pxCount[i];
+            centroids[i * 3 + 2] = (vx_float64)pxSum[i * 3 + 2] / pxCount[i];
 		}
 	}
 
-	free(dists2);
+	free(dists);
 	free(pxCount);
 	free(pxSum);
 	free(centroids);
