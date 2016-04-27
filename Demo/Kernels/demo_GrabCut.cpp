@@ -130,13 +130,16 @@ void demo_GrabCut::VXGrabCut() {
 		VX_COLOR_SPACE_DEFAULT
 	};
 
-	cv::Mat mask;
-	mask.create(m_imgSize, CV_8UC1);
-	mask.setTo(TRIMAP_BGD);
-	mask(m_rect).setTo(TRIMAP_UNDEF);
+	uint8_t* mask_data = static_cast<uint8_t*>(calloc(m_imgSize.width * m_imgSize.height, sizeof(uint8_t)));
+	memset(mask_data, TRIMAP_BGD,m_imgSize.width * m_imgSize.height * sizeof(uint8_t));
+	for (int i = 0; i < m_rect.height; i++) {
+		for (int j = 0; j < m_rect.width; j++) {
+			mask_data[(m_rect.y + i) * m_imgSize.width + (m_rect.x + j)] = TRIMAP_UNDEF;
+		}
+	}
 
 	_vx_matrix trimap = {
-		mask.data,
+		mask_data,
 		m_imgSize.height,
 		m_imgSize.width,
 		VX_TYPE_UINT8
