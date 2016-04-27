@@ -64,6 +64,13 @@ typedef struct _vx_sparse_matrix {
 */
 vx_uint32 euclidian_dist_ii(const vx_uint8 *z1, const vx_uint8 *z2);
 
+/** @brief Computes euclidian distance between integer and floating pixels in RGB color space
+    @param [in] z1 A pointer to the first pixel, integer
+    @param [in] z2 A pointer to the second pixel, floating
+    @return Squared distance between z1 and z2
+*/
+vx_float64 euclidian_dist_if(const vx_uint8 *z1, const vx_float64 *z2);
+
 /** @brief Initializes matte from the trimap.
 	@param [in] N The number of elements
 	@param [in] trimap Agorithm's trimap
@@ -426,6 +433,14 @@ vx_uint32 euclidian_dist_ii(const vx_uint8 *z1, const vx_uint8 *z2) {
     vx_uint32 result = 0;
     for (vx_uint32 i = 0; i < 3; i++) {
         result += (vx_uint32)((z1[0] - z2[0]) * (z1[0] - z2[0]));
+    }
+    return result;
+}
+
+vx_float64 euclidian_dist_if(const vx_uint8 *z1, const vx_float64 *z2) {
+    vx_float64 result = 0;
+    for (vx_uint32 i = 0; i < 3; i++) {
+        result += (z1[0] - z2[0]) * (z1[0] - z2[0]);
     }
     return result;
 }
