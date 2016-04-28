@@ -512,7 +512,7 @@ void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
 		}
 		for (vx_uint32 i = 0; i < 3; i++) {		// covariance matrix
 			for (vx_uint32 j = 0; j < 3; j++) {
-				cov[i][j] = prods[(comp * 9) + (i * 3) + j] / counts[comp];
+				cov[i][j] = (vx_float64)prods[(comp * 9) + (i * 3) + j] / counts[comp];
 				cov[i][j] -= gc->mean[i] * gc->mean[j];
 			}
 		}
