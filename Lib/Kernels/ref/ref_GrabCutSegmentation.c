@@ -59,6 +59,51 @@ typedef struct _vx_sparse_matrix {
 
 #pragma pack(pop)
 
+// Predicates that check whether exist specific neighbour of pixel or not
+// Unificates the check process
+
+vx_bool has_top_left	(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols);
+vx_bool has_top			(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols);
+vx_bool has_top_right	(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols);
+vx_bool has_left		(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols);
+vx_bool has_right		(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols);
+vx_bool has_bottom_left	(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols);
+vx_bool has_bottom		(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols);
+vx_bool has_bottom_right(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols);
+
+// An array, consisting of predicates
+vx_bool(*check[])(vx_uint32, vx_uint32, vx_uint32, vx_uint32) = { 
+	has_top_left,
+	has_top,
+	has_top_right,
+	has_left,
+	has_bottom_left,
+	has_bottom,
+	has_bottom_right,
+	has_right };
+
+// Functions than return index of specific neighbour of given pixel
+
+vx_uint32 get_top_left		(vx_uint32 i, vx_uint32 rows, vx_uint32 cols);
+vx_uint32 get_top			(vx_uint32 i, vx_uint32 rows, vx_uint32 cols);
+vx_uint32 get_top_right		(vx_uint32 i, vx_uint32 rows, vx_uint32 cols);
+vx_uint32 get_left			(vx_uint32 i, vx_uint32 rows, vx_uint32 cols);
+vx_uint32 get_right			(vx_uint32 i, vx_uint32 rows, vx_uint32 cols);
+vx_uint32 get_bottom_left	(vx_uint32 i, vx_uint32 rows, vx_uint32 cols);
+vx_uint32 get_bottom		(vx_uint32 i, vx_uint32 rows, vx_uint32 cols);
+vx_uint32 get_bottom_right	(vx_uint32 i, vx_uint32 rows, vx_uint32 cols);
+
+// An array, consisting of these functions
+vx_uint32(*get_neighbour[])(vx_uint32, vx_uint32, vx_uint32) = {
+	get_top_left,
+	get_top,
+	get_top_right,
+	get_left,
+	get_bottom_left,
+	get_bottom,
+	get_bottom_right,
+	get_right };
+
 /** @brief Computes euclidian distance between integer pixels in RGB color space
 	@param [in] z1 A pointer to the first pixel, integer
 	@param [in] z2 A pointer to the second pixel, integer
@@ -592,28 +637,87 @@ vx_float64 euclidian_dist_if(const vx_uint8 *z1, const vx_float64 *z2) {
     return result;
 }
 
+#pragma warning(disable: 4100)
+vx_bool has_top_left(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols) {
+	return (i > 0) && (j > 0);
+}
+
+vx_bool has_top(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols) {
+	return i > 0;
+}
+
+vx_bool has_top_right(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols) {
+	return (i > 0) && (j < cols - 1);
+}
+
+vx_bool has_left(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols) {
+	return j > 0;
+}
+
+vx_bool has_right(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols) {
+	return j < cols - 1;
+}
+
+vx_bool has_bottom_left(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols) {
+	return (i < rows - 1) && (j > 0);
+}
+
+vx_bool has_bottom(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols) {
+	return i < rows - 1;
+}
+
+vx_bool has_bottom_right(vx_uint32 i, vx_uint32 j, vx_uint32 rows, vx_uint32 cols) {
+	return (i < rows - 1) && (j < cols - 1);
+}
+
+vx_uint32 get_top_left(vx_uint32 i, vx_uint32 rows, vx_uint32 cols) {
+	return i - cols - 1;
+}
+
+vx_uint32 get_top(vx_uint32 i, vx_uint32 rows, vx_uint32 cols) {
+	return i - cols;
+}
+
+vx_uint32 get_top_right(vx_uint32 i, vx_uint32 rows, vx_uint32 cols) {
+	return i - cols + 1;
+}
+
+vx_uint32 get_left(vx_uint32 i, vx_uint32 rows, vx_uint32 cols) {
+	return i - 1;
+}
+
+vx_uint32 get_right(vx_uint32 i, vx_uint32 rows, vx_uint32 cols) {
+	return i + 1;
+}
+
+vx_uint32 get_bottom_left(vx_uint32 i, vx_uint32 rows, vx_uint32 cols) {
+	return i + cols - 1;
+}
+
+vx_uint32 get_bottom(vx_uint32 i, vx_uint32 rows, vx_uint32 cols) {
+	return i + cols;
+}
+
+vx_uint32 get_bottom_right(vx_uint32 i, vx_uint32 rows, vx_uint32 cols) {
+	return i + cols + 1;
+}
+
+#pragma warning(default: 4100)
+
 vx_float64 computeBeta(const vx_RGB_color *data, vx_uint32 width, vx_uint32 height) {
 	vx_uint32 sum = 0;
 	vx_uint32 count = 0;
 	for (vx_uint32 i = 0; i < height; i++) {
 		for (vx_uint32 j = 0; j < width; j++) {
             const vx_uint8 *current = (const vx_uint8*)(data + i * width + j);
-            if (j < width - 1) {
-                sum += euclidian_dist_ii(current, current + 1 * 3); // right
-                count++;
-            }
-            if (i < height - 1) {
-                if (j > 0) {
-                    sum += euclidian_dist_ii(current, current + (width - 1) * 3); // bottom-left
-                    count++;
-                }
-                sum += euclidian_dist_ii(current, current + width * 3); // bottom
-                count++;
-                if (j < width - 1) {
-                    sum += euclidian_dist_ii(current, current + (width + 1) * 3); // bottom-right
-                    count++;
-                }
-            }
+			for (vx_uint32 p = 4; p < 8; p++) {				// process all neighbours
+				if (check[p](i, j, height, width)) {		// in bottom-right direction
+					vx_uint32 other_offset = get_neighbour[p](i * width + j, height, width);
+					const vx_uint8 *other = (const vx_uint8*)(data + other_offset);
+					sum += euclidian_dist_ii(current, other);
+					count++;
+				}
+			}
 		}
 	}
 	return 1 / ((vx_float64)sum / count * 2);
@@ -644,103 +748,19 @@ void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
         vx_uint32 col = i % width;
         const vx_uint8 *cur_data = (const vx_uint8*)(data + i);
 
-        if (row > 0) {		// top side
-            if (col > 0) {
-                vx_uint32 other = i - width - 1;	// top-left
-                if (matte[i] == matte[other]) {
-                    vx_uint32 other_pos = 0;
-                    while (adj_graph->col[adj_graph->nz[other] + other_pos] != i) {
-                        other_pos++;
-                    }
-                    vx_float64 weight = adj_graph->data[adj_graph->nz[other] + other_pos];
-                    adj_graph->data[NNZ_cur] = weight;
-                    adj_graph->col[NNZ_cur] = other;
-                    NNZ_cur++;
-                }
-            }
-
-            vx_uint32 other = i - width;	// top
-            if (matte[i] == matte[other]) {
-                vx_uint32 other_pos = 0;
-                while (adj_graph->col[adj_graph->nz[other] + other_pos] != i) {
-                    other_pos++;
-                }
-                vx_float64 weight = adj_graph->data[adj_graph->nz[other] + other_pos];
-                adj_graph->data[NNZ_cur] = weight;
-                adj_graph->col[NNZ_cur] = other;
-                NNZ_cur++;
-            }
-
-            if (col < width - 1) {
-                vx_uint32 other = i - width + 1;	// top-right
-                if (matte[i] == matte[other]) {
-                    vx_uint32 other_pos = 0;
-                    while (adj_graph->col[adj_graph->nz[other] + other_pos] != i) {
-                        other_pos++;
-                    }
-                    vx_float64 weight = adj_graph->data[adj_graph->nz[other] + other_pos];
-                    adj_graph->data[NNZ_cur] = weight;
-                    adj_graph->col[NNZ_cur] = other;
-                    NNZ_cur++;
-                }
-            }
-        }
-        if (col > 0) {
-            vx_uint32 other = i - 1;	// left
-            if (matte[i] == matte[other]) {
-                vx_uint32 other_pos = 0;
-                while (adj_graph->col[adj_graph->nz[other] + other_pos] != i) {
-                    other_pos++;
-                }
-                vx_float64 weight = adj_graph->data[adj_graph->nz[other] + other_pos];
-                adj_graph->data[NNZ_cur] = weight;
-                adj_graph->col[NNZ_cur] = other;
-                NNZ_cur++;
-            }
-        }
-
-        if (col < width - 1) {
-            vx_uint32 other = i + 1;	// right
-            if (matte[i] == matte[other]) {
-                const vx_uint8 *otherData = (const vx_uint8*)(data + other);
-                vx_float64 weight = gamma * exp(-beta * euclidian_dist_ii(cur_data, otherData));
-                adj_graph->data[NNZ_cur] = weight;
-                adj_graph->col[NNZ_cur] = other;
-                NNZ_cur++;
-            }
-        }
-        if (row < height - 1) {		// bottom side
-            if (col > 0) {
-                vx_uint32 other = i + width - 1;	// bottom-left
-                if (matte[i] == matte[other]) {
-                    const vx_uint8 *otherData = (const vx_uint8*)(data + other);
-                    vx_float64 weight = gamma * exp(-beta * euclidian_dist_ii(cur_data, otherData)) / sqrt_2;
-                    adj_graph->data[NNZ_cur] = weight;
-                    adj_graph->col[NNZ_cur] = other;
-                    NNZ_cur++;
-                }
-            }
-
-            vx_uint32 other = i + width;	// bottom
-            if (matte[i] == matte[other]) {
-                const vx_uint8 *otherData = (const vx_uint8*)(data + other);
-                vx_float64 weight = gamma * exp(-beta * euclidian_dist_ii(cur_data, otherData));
-                adj_graph->data[NNZ_cur] = weight;
-                adj_graph->col[NNZ_cur] = other;
-                NNZ_cur++;
-            }
-
-            if (col < width - 1) {
-                vx_uint32 other = i + width + 1;	// bottom-right
-                if (matte[i] == matte[other]) {
-                    const vx_uint8 *otherData = (const vx_uint8*)(data + other);
-                    vx_float64 weight = gamma * exp(-beta * euclidian_dist_ii(cur_data, otherData)) / sqrt_2;
-                    adj_graph->data[NNZ_cur] = weight;
-                    adj_graph->col[NNZ_cur] = other;
-                    NNZ_cur++;
-                }
-            }
-        }
+		for (vx_uint32 j = 0; j < 8; j++) {			// process all the neighbours
+			if (check[j](row, col, height, width)) {
+				vx_uint32 other = get_neighbour[j](i, height, width);
+				if (matte[i] == matte[other]) {
+					const vx_uint8 *otherData = (const vx_uint8*)(data + other);
+					vx_uint32 d = euclidian_dist_ii(cur_data, otherData);
+					vx_float64 weight = gamma * exp(-beta * d) / (j & 1 ? 1 : sqrt_2);
+					adj_graph->data[NNZ_cur] = weight;
+					adj_graph->col[NNZ_cur] = other;
+					NNZ_cur++;
+				}
+			}
+		}
 
 		adj_graph->col[NNZ_cur] = sink;		// init t-link to sink 
 		NNZ_cur++;
