@@ -102,6 +102,18 @@ void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *matte);
 void initGmmComponents(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
 					   vx_uint32 *gmm_index, const vx_uint8 *matte, vx_uint8 matteClass);
 
+/** @brief Separates all pixels to GMM components basing on the previous partition.
+	@param [in] N The number of pixels
+	@param [in] K The number of GMM components for each GMM
+	@param [in] px Source pixels, 1-by-N array
+	@param [in,out] gmm_index GMM components indexes, assigned to each pixel, 1-by-N array
+	@param [in] gmm The GMM component that is being reassigned, 1-by-K array
+	@param [in] matte Algorithm's matte, 1-by-N array
+	@param [in] matteClass A matte class to initialize corresponding GMM
+*/
+void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm_index,
+                const GmmComponent *gmm, const vx_uint8 *matte, vx_uint8 matteClass);
+
 /** @brief Computes all required numerical characteristics of the GMM components.
 		Does process only GMM, corresponding to given matte class
 	@param [in] N The number of pixels
@@ -234,6 +246,8 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	initGmmComponents(N, K, px, GMM_index, matte, MATTE_BGD);
 	initGmmComponents(N, K, px, GMM_index, matte, MATTE_FGD);
 
+    assignGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
+    assignGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
 	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
 	learnGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
 	setGraphTLinks(N, K, px, bgdGMM, fgdGMM, trimap_data, maxWeight, &adj_graph);
@@ -397,6 +411,59 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 	free(pxCount);
 	free(pxSum);
 	free(centroids);
+}
+
+void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm_index,
+                const GmmComponent *gmm, const vx_uint8 *matte, vx_uint8 matteClass) {
+    vx_uint32 *cnt = (vx_uint32*)calloc(K, sizeof(vx_uint32));
+    memset(cnt, 0, K * sizeof(vx_uint32));
+    for (vx_uint32 i = 0; i < N; i++) {
+        if (matte[i] & matteClass) {
+            const vx_RGB_color *color = px + i;
+            vx_uint32 min_comp = 0;
+            vx_float64 min = computeGmmComponentDataTerm(gmm, color);
+            for (vx_uint32 j = 0; j < K; j++) {
+                vx_float64 D = computeGmmComponentDataTerm(gmm + j, color);
+                if (D < min) {
+                    min = D;
+                    min_comp = j;
+                }
+            }
+            gmm_index[i] = min_comp;
+            cnt[min_comp]++;
+        }
+    }
+    for (vx_uint32 i = 0; i < K; i++) {
+        if (cnt[i] > 0) {
+            continue;
+        }
+
+        vx_uint32 maxComp = 0;
+        vx_uint32 maxCnt = 0;
+        for (vx_uint32 j = 0; j < K; j++) {
+            if (cnt[j] > maxCnt) {
+                maxCnt = cnt[j];
+                maxComp = j;
+            }
+        }
+
+        vx_uint32 farthestPx = 0;
+        vx_float64 maxVal = 0;
+        for (vx_uint32 j = 0; j < N; j++) {
+            if (matte[j] == matteClass && gmm_index[j] == maxComp) {
+                vx_float64 D = computeGmmComponentDataTerm(gmm + maxComp, px + j);
+                if (D > maxVal) {
+                    maxVal = D;
+                    farthestPx = j;
+                }
+            }
+        }
+
+        cnt[maxComp]--;
+        cnt[i]++;
+        gmm_index[farthestPx] = i;
+
+    }
 }
 
 void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
