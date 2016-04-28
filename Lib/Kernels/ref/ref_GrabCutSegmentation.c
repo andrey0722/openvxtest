@@ -171,6 +171,14 @@ void buildSparse(vx_sparse_matrix *mat, vx_uint32 NNZ, vx_uint32 N);
 */
 void destructSparse(vx_sparse_matrix *mat);
 
+/** @brief Copies the content of sparse marix to another. Another
+        matrix must already be allocated enough memory.
+    @param [in] src Source sparse matrix
+    @param [out] dst Destination sparse matrix
+    @param [in] rows The number of rows in source matrix
+*/
+void copySparse(const vx_sparse_matrix *src, vx_sparse_matrix *dst, vx_uint32 rows);
+
 /** @brief Computes data term for given GMM component.
     @details Computes an expression \f$-\log{\pi_n}+\frac{1}{2}\log{\det{\Sigma_n}}+\frac{1}{2}\left[z_n-
         \mu_n\right]^T\Sigma_n^{-1}\left[z_n-\mu_n\right]\f$ for given GMM component.
@@ -728,6 +736,16 @@ void destructSparse(vx_sparse_matrix *mat) {
 	free(mat->data);
 	free(mat->nz);
 	free(mat->col);
+}
+
+void copySparse(const vx_sparse_matrix *src, vx_sparse_matrix *dst, vx_uint32 rows) {
+    for (vx_uint32 i = 0; i < rows + 1; i++) {
+        dst->nz[i] = src->nz[i];
+    }
+    for (vx_uint32 i = 0; i < src->nz[rows]; i++) {
+        dst->data[i] = src->data[i];
+        dst->col[i] = src->col[i];
+    }
 }
 
 vx_float64 computeMaxWeight(vx_uint32 N, const vx_sparse_matrix *adj_graph) {
