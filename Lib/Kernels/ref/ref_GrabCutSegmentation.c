@@ -159,6 +159,15 @@ void buildSparse(vx_sparse_matrix *mat, vx_uint32 NNZ, vx_uint32 N);
 */
 void destructSparse(vx_sparse_matrix *mat);
 
+/** @brief Computes data term for given GMM component.
+    @details Computes an expression \f$-\log{\pi_n}+\frac{1}{2}\log{\det{\Sigma_n}}+\frac{1}{2}\left[z_n-
+        \mu_n\right]^T\Sigma_n^{-1}\left[z_n-\mu_n\right]\f$ for given GMM component.
+    @param [in] comp GMM component
+    @param [out] color Given color
+    @return The value determined by formula
+*/
+vx_float64 computeGmmComponentDataTerm(const GmmComponent *comp, const vx_RGB_color *color);
+
 /** @brief Computes value that defines likelihood of
 		belonging given color to particular GMM
 	@param [in] K The number of components in given GMM
@@ -669,19 +678,23 @@ vx_float64 computeMaxWeight(vx_uint32 N, const vx_sparse_matrix *adj_graph) {
 	return 1 + maxSum;
 }
 
+vx_float64 computeGmmComponentDataTerm(const GmmComponent *comp, const vx_RGB_color *color) {
+    vx_uint8 *clr = (vx_uint8*)color;
+    vx_float64 prod = 0.0;
+    for (vx_uint32 i = 0; i < 3; i++) {
+        for (vx_uint32 j = 0; j < 3; j++) {
+            prod += (clr[i] - comp->mean[i]) * (clr[j] - comp->mean[j]) * comp->inv_cov[i][j];
+        }
+    }
+    return -(log(comp->weight) - 0.5*log(comp->cov_det) - 0.5 * prod);
+}
+
 vx_float64 computeGmmDataTerm(vx_uint32 K, const GmmComponent *gmm, const vx_RGB_color *color) {
-	vx_uint8 *clr = (vx_uint8*)color;
-	vx_float64 result = 0.0f;
-	for (const GmmComponent *comp = gmm; comp < gmm + K; comp++) {
-		vx_float64 prod = 0.0f;
-		for (vx_uint32 i = 0; i < 3; i++) {
-			for (vx_uint32 j = 0; j < 3; j++) {
-				prod += (clr[i] - comp->mean[i]) * (clr[j] - comp->mean[j]) * comp->inv_cov[i][j];
-			}
-		}
-		result += comp->weight / sqrt(comp->cov_det) * exp(0.5f * prod);
-	}
-	return result;
+    vx_float64 result = 0.0;
+    for (const GmmComponent *comp = gmm; comp < gmm + K; comp++) {
+        result += computeGmmComponentDataTerm(comp, color);
+    }
+    return result;
 }
 
 void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data, const GmmComponent *bgdGMM,
