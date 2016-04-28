@@ -235,7 +235,9 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	GmmComponent *bgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
 	// Foreground GMM
 	GmmComponent *fgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
-	vx_sparse_matrix adj_graph;
+    vx_sparse_matrix adj_graph;
+    vx_uint32 NNZ_total = (4 * N - 3 * (src_width + src_height) - 1) * 2 + 2 * N;
+    buildSparse(&adj_graph, NNZ_total, N + 1);
 
 	initRnd(N, px, matte);
 	initMatte(N, trimap_data, matte);
@@ -604,9 +606,6 @@ void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
 	vx_uint32 N = width * height;
 	vx_uint32 source = N;
 	vx_uint32 sink = N + 1;
-
-	vx_uint32 NNZ_total = (4 * width * height - 3 * (width + height) - 1) * 2 + 2 * N;
-	buildSparse(adj_graph, NNZ_total, N + 1);
 
 	vx_uint32 NNZ_cur = 0;
 	for (vx_uint32 i = 0; i < N; i++) {
