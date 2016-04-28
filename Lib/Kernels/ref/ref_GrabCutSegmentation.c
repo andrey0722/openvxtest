@@ -327,7 +327,7 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 			}
 		}
 		// Some pixel will be the next centroid with probability
-		// proportional to it's squared distance from 'dists' array
+		// proportional to it's distance from 'dists' array
 		vx_float64 rnd = (vx_float64)rand() / RAND_MAX * sum; // Continious uniform distribution on [0 sum2)
 		vx_float64 nsum = 0; // Current sq sum accumulator
 		vx_uint32 j = 0;
@@ -351,8 +351,8 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 	// Stores sums of pixels, assigned to each centroid
 	vx_uint32 *pxSum = (vx_uint32*)calloc(K, sizeof(vx_uint32) * 3);
 
-	// The amount of k-means iterations. 5 is enough for good start.
-	const vx_uint32 iterLimit = 5;
+	// The amount of k-means iterations. 10 is enough for good start.
+	const vx_uint32 iterLimit = 10;
 
 	for (vx_uint32 iter = 0; iter < iterLimit; iter++) {
 		memset(pxCount, 0, sizeof(vx_uint32) * K);
@@ -363,16 +363,16 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
                 const vx_uint8 *cur_px = (const vx_uint8*)(px + i);
                 vx_float64 minDist = sqrt(euclidian_dist_if(cur_px, centroids));
 				for (vx_uint32 j = 1; j < K; j++) {		// Search for the best cluster
-					vx_float64 d = sqrt(euclidian_dist_if(cur_px, centroids + j));
+					vx_float64 d = sqrt(euclidian_dist_if(cur_px, centroids + j * 3));
 					if (d < minDist) {
 						bestCluster = j;
 						minDist = d;
 					}
 				}
 				gmm_index[i] = bestCluster;
-				pxSum[bestCluster * 3 + 0] += px[i].r;
+				pxSum[bestCluster * 3 + 0] += px[i].b;
 				pxSum[bestCluster * 3 + 1] += px[i].g;
-				pxSum[bestCluster * 3 + 2] += px[i].b;
+				pxSum[bestCluster * 3 + 2] += px[i].r;
 				pxCount[bestCluster]++;
 			}
 		}
