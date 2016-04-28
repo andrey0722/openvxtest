@@ -28,6 +28,8 @@ enum EMatteClass {
 
 #pragma pack(push,1)
 
+const vx_float64 EPS = +1.0e-12; //< An accuracy of comparison of floating point values
+
 /** @brief The RBG color model
 */
 typedef struct _vx_RGB_color {
@@ -213,6 +215,13 @@ void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data,
 						   const GmmComponent *bgdGMM, const GmmComponent *fgdGMM,
 						   const vx_uint8 *trimap, vx_float64 maxWeight, vx_sparse_matrix *adj_graph);
 
+/** @brief Finds the max-flow through the network and the corresponding min-cut
+	@param [in] N The number of pixels (non-terminal vertices)
+	@param [in,out] adj An adjacency matrix of network
+	@param [in] matte Algorithm's matte, 1-by-N array, generates by min-cut
+*/
+void maxFlow(vx_uint32 N, vx_sparse_matrix *adj, vx_uint8 *matte);
+
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
 	const vx_uint32 src_width = src_image->width;
 	const vx_uint32 src_height = src_image->height;
@@ -243,9 +252,15 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	GmmComponent *bgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
 	// Foreground GMM
 	GmmComponent *fgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
-    vx_sparse_matrix adj_graph;
-    vx_uint32 NNZ_total = (4 * N - 3 * (src_width + src_height) - 1) * 2 + 2 * N;
-    buildSparse(&adj_graph, NNZ_total, N + 1);
+	// The image's neighbourhood graph adjacency matrix
+	vx_sparse_matrix adj_graph;
+	// The adacency matrix for the rest graph (the same size)
+	vx_sparse_matrix adj_rest;
+
+	// The number of all non-zero elements in the graph adjacency matrix
+	vx_uint32 NNZ_total = (4 * N - 3 * (src_width + src_height) - 1) * 2 + 2 * N;
+	buildSparse(&adj_graph, NNZ_total, N + 1);
+	buildSparse(&adj_rest, NNZ_total, N + 1);
 
 	initRnd(N, px, matte);
 	initMatte(N, trimap_data, matte);
@@ -255,19 +270,27 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	vx_float64 maxWeight = computeMaxWeight(N, &adj_graph);
 	initGmmComponents(N, K, px, GMM_index, matte, MATTE_BGD);
 	initGmmComponents(N, K, px, GMM_index, matte, MATTE_FGD);
+	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
+	learnGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
 
     assignGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
     assignGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
 	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
 	learnGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
 	setGraphTLinks(N, K, px, bgdGMM, fgdGMM, trimap_data, maxWeight, &adj_graph);
+	copySparse(&adj_graph, &adj_rest, N + 1);
+	maxFlow(N, &adj_rest, matte);
 
 	vx_RGB_color* dst_data = (vx_RGB_color*)dst_image->data;
+	memset(dst_data, 0, N * sizeof(vx_RGB_color));
 	for (vx_uint32 i = 0; i < N; i++) {
-		dst_data[i] = px[i]; // Just copy
+		if (matte[i] == MATTE_FGD) {
+			dst_data[i] = px[i]; // Copy foreground pixels
+		}
 	}
 
 	destructSparse(&adj_graph);
+	destructSparse(&adj_rest);
 	free(bgdGMM);
 	free(fgdGMM);
 	free(matte);
@@ -815,4 +838,309 @@ void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data, const Gm
 		adj_graph->data[sourcePos] = fromSouce;
 		adj_graph->data[sinkPos] = toSink;
 	}
+}
+
+void maxFlow(vx_uint32 N, vx_sparse_matrix *adj, vx_uint8 *matte) {
+	const vx_uint32 SOURCE = N;		// The source terminal
+	const vx_uint32 SINK = N + 1;	// The sink terminal
+	const vx_uint8 TREE_FREE = 0;	// Free pixel
+	const vx_uint8 TREE_S = 1;		// Pixel from source tree
+	const vx_uint8 TREE_T = 5;		// Pixel from sink tree
+
+	// Stores the labels of the tree to which belongs each pixel
+	vx_uint8 *tree = (vx_uint8*)calloc(N + 2, sizeof(vx_uint8));
+	// Stores the parent of each pixel in trees (if parent(n) == n then n has no parent)
+	vx_uint32 *parent = (vx_uint32*)calloc(N + 2, sizeof(vx_uint32));
+
+	for (vx_uint32 i = 0; i < N + 2; i++) {
+		parent[i] = i;			// initially there is no parent for each
+		tree[i] = TREE_FREE;	// initially each is free
+	}
+
+	tree[SOURCE] = TREE_S;		// initial source tree
+	tree[SINK] = TREE_T;		// initial sink tree
+
+	// Indicates whether pixel is active or not
+	vx_bool *is_active = (vx_bool*)calloc(N + 2, sizeof(vx_bool));
+	memset(is_active, vx_false_e, (N + 2) * sizeof(vx_bool));
+	is_active[SOURCE] = vx_true_e;
+	is_active[SINK] = vx_true_e;
+
+	// Stores orphan pixels, which require further handle
+	vx_uint32 *orphan = (vx_uint32*)calloc(N + 2, sizeof(vx_uint32));
+	// Ponts to ghost element after the last in 'orphan' array
+	vx_uint32 orphan_end = 0;
+	// Stores active pixels, from which the tree will grow
+	vx_uint32 *active = (vx_uint32*)calloc((N + 2) * 2, sizeof(vx_uint32));
+	active[0] = SOURCE;
+	active[1] = SINK;
+	// Ponts to ghost element after the last in 'active' array
+	vx_uint32 active_end = 2;
+
+	vx_bool done = vx_false_e;
+	while (!done) {
+		vx_uint32 st_edge = 0;				// Corresponds to the edge, by which trees do intersect
+		vx_uint32 s_bound = SOURCE;			// The pixel of this edge on the source side
+		vx_uint32 t_bound = SINK;			// The pixel of this edge on the sink side
+
+		//////////////////////
+		//// Growth stage
+		//////////////////////
+
+		vx_bool pathFound = vx_false_e;
+		vx_uint32 cur_a = 0;
+		while (cur_a < active_end && !pathFound) {
+			vx_uint32 p = active[cur_a];	// Current active pixel
+			if (tree[p] == TREE_S) {
+				for (vx_uint32 i = adj->nz[p]; i < adj->nz[p + 1] && !pathFound; i++) {
+					if (adj->data[i] > EPS) {
+						vx_uint32 q = adj->col[i];
+						if (tree[q] == TREE_FREE) {
+							tree[q] = tree[p];
+							parent[q] = p;
+							if (!is_active[q]) {
+								active[active_end] = q;
+								active_end++;
+								is_active[q] = vx_true_e;
+							}
+						}
+						else if (tree[q] != tree[p]) {
+							s_bound = p;
+							t_bound = q;
+							st_edge = i;
+							pathFound = vx_true_e;
+						}
+					}
+				}
+			}
+			else if (tree[p] == TREE_T) {
+				for (vx_uint32 i = 0; i < N && !pathFound; i++) {
+					for (vx_uint32 j = adj->nz[i]; j < adj->nz[i + 1] && !pathFound; j++) {
+						if (adj->col[j] == p && adj->data[j] > EPS) {
+							vx_uint32 q = i;
+							if (tree[q] == TREE_FREE) {
+								tree[q] = tree[p];
+								parent[q] = p;
+								if (!is_active[q]) {
+									active[active_end] = q;
+									active_end++;
+									is_active[q] = vx_true_e;
+								}
+							}
+							else if (tree[q] != tree[p]) {
+								s_bound = q;
+								t_bound = p;
+								st_edge = j;
+								pathFound = vx_true_e;
+							}
+						}
+					}
+				}
+			}
+			if (!pathFound) {
+				cur_a++;
+				is_active[p] = vx_false_e;
+			}
+		}
+		if (!pathFound) {
+			done = vx_true_e;
+		}
+		else {
+			vx_uint32 i = 0;
+			for (; cur_a < active_end; cur_a++) {
+				active[i] = active[cur_a];
+				i++;
+			}
+			active_end = i;
+
+			//////////////////////
+			//// Saturation stage
+			//////////////////////
+
+			// The max possible flow through whe found path
+			vx_float64 bottleneck = adj->data[st_edge];
+			vx_uint32 s_i = s_bound;
+			while (s_i != SOURCE) {
+				vx_uint32 s_parent = parent[s_i];
+				for (vx_uint32 i = adj->nz[s_parent]; i < adj->nz[s_parent + 1]; i++) {
+					if (adj->col[i] == s_i) {
+						if (adj->data[i] < bottleneck - EPS) {
+							bottleneck = adj->data[i];
+						}
+						break;
+					}
+				}
+				s_i = s_parent;
+			}
+			vx_uint32 t_i = t_bound;
+			while (t_i != SINK) {
+				vx_uint32 t_parent = parent[t_i];
+				for (vx_uint32 i = adj->nz[t_i]; i < adj->nz[t_i + 1]; i++) {
+					if (adj->col[i] == t_parent) {
+						if (adj->data[i] < bottleneck - EPS) {
+							bottleneck = adj->data[i];
+						}
+						break;
+					}
+				}
+				t_i = t_parent;
+			}
+
+			// Bottleneck is found now we should push this flow through the path
+
+			adj->data[st_edge] -= bottleneck;
+
+			s_i = s_bound;
+			while (s_i != SOURCE) {
+				vx_uint32 s_parent = parent[s_i];
+				for (vx_uint32 i = adj->nz[s_parent]; i < adj->nz[s_parent + 1]; i++) {
+					if (adj->col[i] == s_i) {
+						adj->data[i] -= bottleneck;
+						if (adj->data[i] < EPS) {
+							parent[s_i] = s_i;
+							orphan[orphan_end] = s_i;
+							orphan_end++;
+						}
+						break;
+					}
+				}
+				s_i = s_parent;
+			}
+			t_i = t_bound;
+			while (t_i != SINK) {
+				vx_uint32 t_parent = parent[t_i];
+				for (vx_uint32 i = adj->nz[t_i]; i < adj->nz[t_i + 1]; i++) {
+					if (adj->col[i] == t_parent) {
+						adj->data[i] -= bottleneck;
+						if (adj->data[i] < EPS) {
+							parent[t_i] = t_i;
+							orphan[orphan_end] = t_i;
+							orphan_end++;
+						}
+						break;
+					}
+				}
+				t_i = t_parent;
+			}
+
+			//////////////////////
+			//// Adoption stage
+			//////////////////////
+
+			for (vx_uint32 orph_cur = 0; orph_cur < orphan_end; orph_cur++) {
+				vx_uint32 p = orphan[orph_cur];					// Current orphan
+				if (tree[p] == TREE_S) {
+					vx_bool parentFound = vx_false_e;
+					for (vx_uint32 i = 0; i < N && !parentFound; i++) {
+						for (vx_uint32 j = adj->nz[i]; j < adj->nz[i + 1] && !parentFound; j++) {
+							if (adj->col[j] == p && adj->data[j] > EPS) {
+								vx_uint32 q = i;
+								if (tree[q] == tree[p]) {
+									vx_uint32 q_i = q;
+									while (q_i != SOURCE && parent[q_i] != q_i) {
+										q_i = parent[q_i];
+									}
+									if (q_i == SOURCE) {
+										parent[p] = q;
+										parentFound = vx_true_e;
+									}
+								}
+							}
+						}
+					}
+					if (!parentFound) {		// No parent is found in original tree
+						for (vx_uint32 i = 0; i < N; i++) {
+							for (vx_uint32 j = adj->nz[i]; j < adj->nz[i + 1]; j++) {
+								if (adj->col[j] == p) {
+									vx_uint32 q = i;
+									if (adj->data[j] > EPS) {
+										if (!is_active[q]) {
+											active[active_end] = q;
+											active_end++;
+											is_active[q] = vx_true_e;
+										}
+									}
+									if (parent[q] == p) {
+										parent[q] = q;
+										orphan[orphan_end] = q;
+										orphan_end++;
+									}
+								}
+							}
+						}
+						tree[p] = TREE_FREE;
+					}
+				}
+				else if (tree[p] == TREE_T) {
+					vx_bool parentFound = vx_false_e;
+					for (vx_uint32 i = adj->nz[p]; i < adj->nz[p + 1] && !parentFound; i++) {
+						if (adj->data[i] > EPS) {
+							vx_uint32 q = adj->col[i];
+							if (tree[q] == tree[p]) {
+								vx_uint32 q_i = q;
+								while (q_i != SINK && parent[q_i] != q_i) {
+									q_i = parent[q_i];
+								}
+								if (q_i == SINK) {
+									parent[p] = q;
+									parentFound = vx_true_e;
+								}
+							}
+						}
+					}
+					if (!parentFound) {			// No parent is found in original tree
+						for (vx_uint32 i = adj->nz[p]; i < adj->nz[p + 1]; i++) {
+							vx_uint32 q = adj->col[i];
+							if (adj->data[i] > EPS) {
+								if (!is_active[q]) {
+									active[active_end] = q;
+									active_end++;
+									is_active[q] = vx_true_e;
+								}
+							}
+							if (parent[q] == p) {
+								parent[q] = q;
+								orphan[orphan_end] = q;
+								orphan_end++;
+							}
+						}
+						tree[p] = TREE_FREE;
+					}
+				}
+			}
+			orphan_end = 0;
+		}
+	}
+
+	//////////////////////
+	//// Cut stage
+	//////////////////////
+
+	// Trying to get as far as possible from source
+
+	memset(matte, MATTE_BGD, N * sizeof(vx_uint8));
+	vx_uint32 *stack = (vx_uint32*)calloc(N + 2, sizeof(vx_uint32));
+	stack[0] = SOURCE;
+	vx_uint32 stack_top = 1;
+
+	while (stack_top) {
+		stack_top--;
+		vx_uint32 node = stack[stack_top];
+		if (node != SOURCE) {
+			matte[node] = MATTE_FGD;	// Achievable pixel is foreground
+		}
+		for (vx_uint32 i = adj->nz[node + 1] - 1; i >= adj->nz[node]; i--) {
+			vx_uint32 p = adj->col[i];
+			if (parent[p] == node) {
+				stack[stack_top] = p;
+				stack_top++;
+			}
+		}
+	}
+
+	free(stack);
+	free(tree);
+	free(parent);
+	free(active);
+	free(orphan);
 }
