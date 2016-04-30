@@ -48,14 +48,29 @@ typedef struct _GmmComponent {
 	vx_float64 weight;			///< @brief The weight in GMM's weighted sum
 } GmmComponent;
 
-/** @brief Represents M-by-N sparse matrix using Compressed Sparse Row (CSR) format.
-		Stores P non-zero elements of type vx_float64
+/** @brief Represents an adjacent edge to some vertex of the graph
 */
-typedef struct _vx_sparse_matrix {
-	vx_float64 *data;	///< @brief Non-zero elements of the sparse matrix, 1-by-P array
-	vx_uint32 *nz;		///< @brief The number of non-zero elements in previous rows, 1-by-M array
-	vx_uint32 *col;		///< @brief Column indexes of corresponding elements from 'data', 1-by-P array
-} vx_sparse_matrix;
+typedef struct _vx_GC_neighbour {
+	vx_uint32 edge;		///< Index of the edge weight in edges array
+	vx_uint32 px;		///< Index of the adjacent vertex, connected by this edge
+} vx_GC_neighbour;
+
+/** @brief Stores two adjacent edges to some vertex of the graph.
+		One is outcoming, other is incoming
+*/
+typedef struct _vx_GC_couple {
+	vx_GC_neighbour in;		///< @brief Incoming edge
+	vx_GC_neighbour out;	///< @brief Outcoming edge
+} vx_GC_couple;
+
+/** @brief The graph adjacency, represented by N-by-N sparse matrix using Compressed Sparse Row (CSR) format.
+		Stores P edges and all adjacent edges for each vertex.
+*/
+typedef struct _vx_GC_graph {
+	vx_float64 *edges;	///< @brief Potentially non-zero edges of the graph, 1-by-P array
+	vx_uint32 *nz;		///< @brief The number of elements in previous rows, 1-by-N array
+	vx_GC_couple *nbr;	///< @brief Adjacent edges for each vertex, 1-by-P array
+} vx_GC_graph;
 
 #pragma pack(pop)
 
@@ -186,10 +201,10 @@ vx_float64 computeBeta(const vx_RGB_color *data, vx_uint32 width, vx_uint32 heig
 /** @brief Computes the maximum weight of the graph edge,
 		that is obviously not less than any another.
 	@param [in] N The number of pixels
-	@param [in] adj_graph The sparse adjacency matrix for graph
+	@param [in] adj The graph adjacency matrix
 	@return Returns value of max-weight.
 */
-vx_float64 computeMaxWeight(vx_uint32 N, const vx_sparse_matrix *adj_graph);
+vx_float64 computeMaxWeight(vx_uint32 N, const vx_GC_graph *adj);
 
 /** @brief Sets N-links in the given graph for the source image.
 	@detailed N-links are the links between neighbouring pixels in image.
@@ -200,31 +215,31 @@ vx_float64 computeMaxWeight(vx_uint32 N, const vx_sparse_matrix *adj_graph);
 	@param [in] matte Algorithm's matte, 1-by-N array
 	@param [in] gamma Parameter of the algorithm
 	@param [in] beta Parameter of the algorithm
-	@param [in,out] adj_graph An adjacency matrix (N+2)-by-(N+2)
+	@param [in,out] adj A graph adjacency matrix (N+2)-by-(N+2)
 */
 void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
 					vx_uint32 height, const vx_uint8 *matte,
-					vx_float64 gamma, vx_float64 beta, vx_sparse_matrix *adj_graph);
+					vx_float64 gamma, vx_float64 beta, vx_GC_graph *adj);
 
-/** @brief Allocates required memory for the non-zero elements of the original matrix
-	@param [in,out] mat An empty sparse matrix
-	@param [in] NNZ The number of non-zero elements in matrix
-	@param [in] N The number of rows in the original matrix
+/** @brief Allocates required memory for the graph
+	@param [in,out] adj An empty graph
+	@param [in] NNZ The number of edges in graph
+	@param [in] N The number of vertices
 */
-void buildSparse(vx_sparse_matrix *mat, vx_uint32 NNZ, vx_uint32 N);
+void buildGraph(vx_GC_graph *adj, vx_uint32 NNZ, vx_uint32 N);
 
-/** @brief Deallocates memory of given sparse matrix
-	@param [in,out] mat A non-empty sparse matrix
+/** @brief Deallocates memory of given graph
+	@param [in,out] adj A non-empty graph
 */
-void destructSparse(vx_sparse_matrix *mat);
+void destructGraph(vx_GC_graph *adj);
 
-/** @brief Copies the content of sparse marix to another. Another
-        matrix must already be allocated enough memory.
-    @param [in] src Source sparse matrix
-    @param [out] dst Destination sparse matrix
-    @param [in] rows The number of rows in source matrix
+/** @brief Copies the content of graph to another. Another
+        graph must already be allocated enough memory.
+    @param [in] src Source graph
+    @param [out] dst Destination graph
+    @param [in] N The number of vertices in source graph
 */
-void copySparse(const vx_sparse_matrix *src, vx_sparse_matrix *dst, vx_uint32 rows);
+void copyGraph(const vx_GC_graph *src, vx_GC_graph *dst, vx_uint32 N);
 
 /** @brief Computes data term for given GMM component.
     @details Computes an expression \f$-\log{\pi_n}+\frac{1}{2}\log{\det{\Sigma_n}}+\frac{1}{2}\left[z_n-
@@ -254,18 +269,18 @@ vx_float64 computeGmmDataTerm(vx_uint32 K, const GmmComponent *gmm, const vx_RGB
 	@param [in] fgdGMM The foreground GMM
 	@param [in] trimap The algorithm's trimap
 	@param [in] maxWeight Parameter of the algorithm, pretty large
-	@param [in,out] adj_graph An adjacency matrix (N+2)-by-(N+2)
+	@param [in,out] adj A graph adjacency matrix (N+2)-by-(N+2)
 */
 void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data,
 						   const GmmComponent *bgdGMM, const GmmComponent *fgdGMM,
-						   const vx_uint8 *trimap, vx_float64 maxWeight, vx_sparse_matrix *adj_graph);
+						   const vx_uint8 *trimap, vx_float64 maxWeight, vx_GC_graph *adj);
 
 /** @brief Finds the max-flow through the network and the corresponding min-cut
 	@param [in] N The number of pixels (non-terminal vertices)
 	@param [in,out] adj An adjacency matrix of network
 	@param [in] matte Algorithm's matte, 1-by-N array, generates by min-cut
 */
-void maxFlow(vx_uint32 N, vx_sparse_matrix *adj, vx_uint8 *matte);
+void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *matte);
 
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
 	const vx_uint32 src_width = src_image->width;
@@ -298,14 +313,14 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	// Foreground GMM
 	GmmComponent *fgdGMM = (GmmComponent*)calloc(K, sizeof(GmmComponent));
 	// The image's neighbourhood graph adjacency matrix
-	vx_sparse_matrix adj_graph;
+	vx_GC_graph adj_graph;
 	// The adacency matrix for the rest graph (the same size)
-	vx_sparse_matrix adj_rest;
+	vx_GC_graph adj_rest;
 
 	// The number of all non-zero elements in the graph adjacency matrix
-	vx_uint32 NNZ_total = (4 * N - 3 * (src_width + src_height) - 1) * 2 + 2 * N;
-	buildSparse(&adj_graph, NNZ_total, N + 1);
-	buildSparse(&adj_rest, NNZ_total, N + 1);
+	vx_uint32 NNZ_total = (4 * N - 3 * (src_width + src_height) - 1) * 2 + 4 * N;
+	buildGraph(&adj_graph, NNZ_total, N + 2);
+	buildGraph(&adj_rest, NNZ_total, N + 2);
 
 	initRnd(N, px, matte);
 	initMatte(N, trimap_data, matte);
@@ -323,7 +338,7 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
 	learnGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
 	setGraphTLinks(N, K, px, bgdGMM, fgdGMM, trimap_data, maxWeight, &adj_graph);
-	copySparse(&adj_graph, &adj_rest, N + 1);
+	copyGraph(&adj_graph, &adj_rest, N + 2);
 	maxFlow(N, &adj_rest, matte);
 
 	vx_RGB_color* dst_data = (vx_RGB_color*)dst_image->data;
@@ -334,8 +349,8 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 		}
 	}
 
-	destructSparse(&adj_graph);
-	destructSparse(&adj_rest);
+	destructGraph(&adj_graph);
+	destructGraph(&adj_rest);
 	free(bgdGMM);
 	free(fgdGMM);
 	free(matte);
@@ -723,19 +738,19 @@ vx_float64 computeBeta(const vx_RGB_color *data, vx_uint32 width, vx_uint32 heig
 	return 1 / ((vx_float64)sum / count * 2);
 }
 
-void buildSparse(vx_sparse_matrix *mat, vx_uint32 NNZ, vx_uint32 N) {
-	mat->data = (vx_float64*)calloc(NNZ, sizeof(vx_float64));
-	mat->nz = (vx_uint32*)calloc(N + 1, sizeof(vx_uint32));
-	mat->col = (vx_uint32*)calloc(NNZ, sizeof(vx_uint32));
+void buildGraph(vx_GC_graph *adj, vx_uint32 NNZ, vx_uint32 N) {
+	adj->edges = (vx_float64*)calloc(NNZ, sizeof(vx_float64));
+	adj->nz = (vx_uint32*)calloc(N + 1, sizeof(vx_uint32));
+	adj->nbr = (vx_GC_couple*)calloc(NNZ, sizeof(vx_GC_couple));
 
-	memset(mat->data, 0, NNZ * sizeof(vx_float64));
-	memset(mat->nz, 0, (N + 1) * sizeof(vx_uint32));
-	memset(mat->col, 0, NNZ * sizeof(vx_uint32));
+	memset(adj->edges, 0, NNZ * sizeof(vx_float64));
+	memset(adj->nz, 0, (N + 1) * sizeof(vx_uint32));
+	memset(adj->nbr, 0, NNZ * sizeof(vx_GC_couple));
 }
 
 void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
 					vx_uint32 height, const vx_uint8 *matte,
-					vx_float64 gamma, vx_float64 beta, vx_sparse_matrix *adj_graph) {
+					vx_float64 gamma, vx_float64 beta, vx_GC_graph *adj) {
 
 	vx_float64 sqrt_2 = sqrt(2);
 	vx_uint32 N = width * height;
@@ -755,48 +770,76 @@ void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
 					const vx_uint8 *otherData = (const vx_uint8*)(data + other);
 					vx_uint32 d = euclidian_dist_ii(cur_data, otherData);
 					vx_float64 weight = gamma * exp(-beta * d) / (j & 1 ? 1 : sqrt_2);
-					adj_graph->data[NNZ_cur] = weight;
-					adj_graph->col[NNZ_cur] = other;
+					adj->edges[NNZ_cur] = weight;
+					adj->nbr[NNZ_cur].out.edge = NNZ_cur;
+					adj->nbr[NNZ_cur].out.px = other;
 					NNZ_cur++;
 				}
 			}
 		}
 
-		adj_graph->col[NNZ_cur] = sink;		// init t-link to sink 
+		adj->nbr[NNZ_cur].out.edge = NNZ_cur;
+		adj->nbr[NNZ_cur].out.px = source;	// init t-link to source
 		NNZ_cur++;
 
-		adj_graph->nz[i + 1] = NNZ_cur;
+		adj->nbr[NNZ_cur].out.edge = NNZ_cur;
+		adj->nbr[NNZ_cur].out.px = sink;		// init t-link to sink
+		NNZ_cur++;
+
+		adj->nz[i + 1] = NNZ_cur;
 	}
 
 	// init t-links from source
-	adj_graph->nz[source + 1] = NNZ_cur + N;
 	for (vx_uint32 i = 0; i < N; i++) {
-		adj_graph->col[NNZ_cur + i] = i;
+		adj->nbr[NNZ_cur].out.edge = NNZ_cur;
+		adj->nbr[NNZ_cur].out.px = i;
+		NNZ_cur++;
+	}
+	adj->nz[source + 1] = NNZ_cur;
+
+	// init t-links from sink
+	for (vx_uint32 i = 0; i < N; i++) {
+		adj->nbr[NNZ_cur].out.edge = NNZ_cur;
+		adj->nbr[NNZ_cur].out.px = i;
+		NNZ_cur++;
+	}
+	adj->nz[sink + 1] = NNZ_cur;
+
+	for (vx_uint32 cur = 0; cur < N + 2; cur++) {
+		for (vx_uint32 i = adj->nz[cur]; i < adj->nz[cur + 1]; i++) {
+			vx_uint32 other = adj->nbr[i].out.px;
+			vx_uint32 j = adj->nz[other];
+			while (adj->nbr[j].out.px != cur) {
+				j++;
+			}
+			adj->nbr[i].in.px = other;
+			adj->nbr[i].in.edge = j;
+		}
 	}
 }
 
-void destructSparse(vx_sparse_matrix *mat) {
-	free(mat->data);
-	free(mat->nz);
-	free(mat->col);
+void destructGraph(vx_GC_graph *adj) {
+	free(adj->edges);
+	free(adj->nz);
+	free(adj->nbr);
 }
 
-void copySparse(const vx_sparse_matrix *src, vx_sparse_matrix *dst, vx_uint32 rows) {
-    for (vx_uint32 i = 0; i < rows + 1; i++) {
+void copyGraph(const vx_GC_graph *src, vx_GC_graph *dst, vx_uint32 N) {
+    for (vx_uint32 i = 0; i < N + 1; i++) {
         dst->nz[i] = src->nz[i];
     }
-    for (vx_uint32 i = 0; i < src->nz[rows]; i++) {
-        dst->data[i] = src->data[i];
-        dst->col[i] = src->col[i];
+    for (vx_uint32 i = 0; i < src->nz[N]; i++) {
+		dst->edges[i] = src->edges[i];
+        dst->nbr[i] = src->nbr[i];
     }
 }
 
-vx_float64 computeMaxWeight(vx_uint32 N, const vx_sparse_matrix *adj_graph) {
+vx_float64 computeMaxWeight(vx_uint32 N, const vx_GC_graph *adj) {
 	vx_float64 maxSum = 0;
 	for (vx_uint32 i = 0; i < N; i++) { // Search for max links sum in row
 		vx_float64 sum = 0;
-		for (vx_uint32 j = adj_graph->nz[i]; j < adj_graph->nz[i + 1]; j++) {
-			sum += adj_graph->data[j];
+		for (vx_uint32 j = adj->nz[i]; j < adj->nz[i + 1]; j++) {
+			sum += adj->edges[j];
 		}
 		if (sum > maxSum) {
 			maxSum = sum;
@@ -826,7 +869,7 @@ vx_float64 computeGmmDataTerm(vx_uint32 K, const GmmComponent *gmm, const vx_RGB
 
 void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data, const GmmComponent *bgdGMM,
 					const GmmComponent *fgdGMM, const vx_uint8 *trimap,
-					vx_float64 maxWeight, vx_sparse_matrix *adj_graph) {
+					vx_float64 maxWeight, vx_GC_graph *adj) {
 
 	vx_uint32 source = N;
 	vx_uint32 sink = N + 1;
@@ -849,198 +892,152 @@ void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data, const Gm
 			break;
 		}
 
-		vx_uint32 sourcePos = adj_graph->nz[source] + i;
-		vx_uint32 sinkPos = adj_graph->nz[i];
-		while (adj_graph->col[sinkPos] != sink) {
-			sinkPos++;
-		}
+		vx_uint32 sourcePos = adj->nbr[adj->nz[source] + i].out.edge;
+		vx_uint32 sinkPos = adj->nbr[adj->nz[sink] + i].in.edge;
 
-		adj_graph->data[sourcePos] = fromSouce;
-		adj_graph->data[sinkPos] = toSink;
+		adj->edges[sourcePos] = fromSouce;
+		adj->edges[sinkPos] = toSink;
 	}
 }
 
-void maxFlow(vx_uint32 N, vx_sparse_matrix *adj, vx_uint8 *matte) {
+// Gets the neighbouring edge by index i in adj_nbr[]. For TREE_S - outcoming, for TREE_T - incoming.
+#define GET_NBR_OUT(TREE, i) ((TREE) == TREE_S ? &adj->nbr[(i)].out : &adj->nbr[(i)].in)
+// Gets the neighbouring edge by index i in adj_nbr[]. For TREE_S - incoming, for TREE_T - outcoming.
+#define GET_NBR_IN(TREE, i) ((TREE) == TREE_S ? &adj->nbr[(i)].in : &adj->nbr[(i)].out)
+
+void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *matte) {
 	const vx_uint32 SOURCE = N;		// The source terminal
 	const vx_uint32 SINK = N + 1;	// The sink terminal
-	const vx_uint8 TREE_FREE = 0;	// Free pixel
-	const vx_uint8 TREE_S = 1;		// Pixel from source tree
-	const vx_uint8 TREE_T = 5;		// Pixel from sink tree
+	const vx_uint8 TREE_S = 0;		// Pixel from source tree
+	const vx_uint8 TREE_T = 1;		// Pixel from sink tree
+	const vx_uint8 TREE_FREE = 2;	// Free pixel
+
+	vx_uint32 TERMINAL[2];
+	TERMINAL[TREE_S] = SOURCE;
+	TERMINAL[TREE_T] = SINK;
 
 	// Stores the labels of the tree to which belongs each pixel
 	vx_uint8 *tree = (vx_uint8*)calloc(N + 2, sizeof(vx_uint8));
 	// Stores the parent of each pixel in trees (if parent(n) == n then n has no parent)
 	vx_uint32 *parent = (vx_uint32*)calloc(N + 2, sizeof(vx_uint32));
+	// Linked list of all active nodes, for FIFO (if active_next(n) == n then n is last)
+	vx_uint32 *active_next = (vx_uint32*)calloc(N + 2, sizeof(vx_uint32));
 
 	for (vx_uint32 i = 0; i < N + 2; i++) {
 		parent[i] = i;			// initially there is no parent for each
 		tree[i] = TREE_FREE;	// initially each is free
+		active_next[i] = i;		// initially there are no actives
 	}
 
 	tree[SOURCE] = TREE_S;		// initial source tree
 	tree[SINK] = TREE_T;		// initial sink tree
-
-	// Indicates whether pixel is active or not
-	vx_bool *is_active = (vx_bool*)calloc(N + 2, sizeof(vx_bool));
-	memset(is_active, vx_false_e, (N + 2) * sizeof(vx_bool));
-	is_active[SOURCE] = vx_true_e;
-	is_active[SINK] = vx_true_e;
+	vx_uint32 active_first = SOURCE;	// The first active node (beginning of the list)
+	vx_uint32 active_last = SINK;		// The last active node (end of the list)
+	active_next[SOURCE] = SINK;			// First two actives
 
 	// Stores orphan pixels, which require further handle
 	vx_uint32 *orphan = (vx_uint32*)calloc(N + 2, sizeof(vx_uint32));
-	// Ponts to ghost element after the last in 'orphan' array
+	// Ponts to ghost element after the last orphan
 	vx_uint32 orphan_end = 0;
-	// Stores active pixels, from which the tree will grow
-	vx_uint32 *active = (vx_uint32*)calloc((N + 2) * 2, sizeof(vx_uint32));
-	active[0] = SOURCE;
-	active[1] = SINK;
-	// Ponts to ghost element after the last in 'active' array
-	vx_uint32 active_end = 2;
 
 	vx_bool done = vx_false_e;
 	while (!done) {
-		vx_uint32 st_edge = 0;				// Corresponds to the edge, by which trees do intersect
-		vx_uint32 s_bound = SOURCE;			// The pixel of this edge on the source side
-		vx_uint32 t_bound = SINK;			// The pixel of this edge on the sink side
+		vx_uint32 bound_edge = 0;			// Boundary edge, by which trees do touch
+		vx_uint32 bound_nodes[2];			// Nodes of the boundary edge
 
 		//////////////////////
 		//// Growth stage
 		//////////////////////
 
 		vx_bool pathFound = vx_false_e;
-		vx_uint32 cur_a = 0;
-		while (cur_a < active_end && !pathFound) {
-			vx_uint32 p = active[cur_a];	// Current active pixel
-			if (tree[p] == TREE_S) {
+		vx_uint32 p = active_first;			// Current active pixel
+		while (!pathFound) {
+			if (tree[p] != TREE_FREE) {
+				// The bypass of edges, adjacent to p
 				for (vx_uint32 i = adj->nz[p]; i < adj->nz[p + 1] && !pathFound; i++) {
-					if (adj->data[i] > EPS) {
-						vx_uint32 q = adj->col[i];
+					vx_GC_neighbour *nghbr = GET_NBR_OUT(tree[p], i); // Adjacent adge
+					if (adj->edges[nghbr->edge] > EPS) {
+						vx_uint32 q = nghbr->px;		// Neighbouring pixel/terminal
 						if (tree[q] == TREE_FREE) {
-							tree[q] = tree[p];
+							tree[q] = tree[p];			// If free, then add to the tree
 							parent[q] = p;
-							if (!is_active[q]) {
-								active[active_end] = q;
-								active_end++;
-								is_active[q] = vx_true_e;
+							if (active_next[q] == q && q != active_last) {	// and make it active
+								active_next[active_last] = q;
+								active_last = q;
 							}
 						}
-						else if (tree[q] != tree[p]) {
-							s_bound = p;
-							t_bound = q;
-							st_edge = i;
+						else if (tree[q] != tree[p]) {	// Trees have met
+							bound_nodes[tree[p]] = p;	// Remember the boundary edge
+							bound_nodes[tree[q]] = q;
+							bound_edge = nghbr->edge;
 							pathFound = vx_true_e;
 						}
 					}
 				}
 			}
-			else if (tree[p] == TREE_T) {
-				for (vx_uint32 i = 0; i < N && !pathFound; i++) {
-					for (vx_uint32 j = adj->nz[i]; j < adj->nz[i + 1] && !pathFound; j++) {
-						if (adj->col[j] == p && adj->data[j] > EPS) {
-							vx_uint32 q = i;
-							if (tree[q] == TREE_FREE) {
-								tree[q] = tree[p];
-								parent[q] = p;
-								if (!is_active[q]) {
-									active[active_end] = q;
-									active_end++;
-									is_active[q] = vx_true_e;
-								}
-							}
-							else if (tree[q] != tree[p]) {
-								s_bound = q;
-								t_bound = p;
-								st_edge = j;
-								pathFound = vx_true_e;
-							}
-						}
-					}
+			if (!pathFound) {
+				if (p != active_last) {				// If current is not last active
+					active_first = active_next[p];	// Throw away current active, take the next one
+					active_next[p] = p;
+					p = active_first;
+				}
+				else {				// If current is last active
+					break;			// End of the growth stage
 				}
 			}
-			if (!pathFound) {
-				cur_a++;
-				is_active[p] = vx_false_e;
-			}
 		}
-		if (!pathFound) {
-			done = vx_true_e;
+		if (!pathFound) {			// There is no more non-saturated path,
+			done = vx_true_e;		// end of the algorithm
 		}
 		else {
-			vx_uint32 i = 0;
-			for (; cur_a < active_end; cur_a++) {
-				active[i] = active[cur_a];
-				i++;
-			}
-			active_end = i;
 
 			//////////////////////
 			//// Saturation stage
 			//////////////////////
 
-			// The max possible flow through whe found path
-			vx_float64 bottleneck = adj->data[st_edge];
-			vx_uint32 s_i = s_bound;
-			while (s_i != SOURCE) {
-				vx_uint32 s_parent = parent[s_i];
-				for (vx_uint32 i = adj->nz[s_parent]; i < adj->nz[s_parent + 1]; i++) {
-					if (adj->col[i] == s_i) {
-						if (adj->data[i] < bottleneck - EPS) {
-							bottleneck = adj->data[i];
+			// The max possible flow through whe found path (so-called "bottleneck")
+			vx_float64 bottleneck = adj->edges[bound_edge];
+			for (vx_uint8 cur_tree = TREE_S; cur_tree <= TREE_T; cur_tree++) {
+				vx_uint32 p_i = bound_nodes[cur_tree];		// Going from the boundary edge
+				while (p_i != TERMINAL[cur_tree]) {			// to the both terminals
+					vx_uint32 p_parent = parent[p_i];
+					// The bypass of edges, adjacent to p_i
+					for (vx_uint32 i = adj->nz[p_i]; i < adj->nz[p_i + 1]; i++) {
+						vx_GC_neighbour *nghbr = GET_NBR_IN(cur_tree, i);
+						if (nghbr->px == p_parent) {
+							if (adj->edges[nghbr->edge] < bottleneck - EPS) {
+								bottleneck = adj->edges[nghbr->edge];	// Search for min non-zero
+							}
+							break;
 						}
-						break;
 					}
+					p_i = p_parent;
 				}
-				s_i = s_parent;
-			}
-			vx_uint32 t_i = t_bound;
-			while (t_i != SINK) {
-				vx_uint32 t_parent = parent[t_i];
-				for (vx_uint32 i = adj->nz[t_i]; i < adj->nz[t_i + 1]; i++) {
-					if (adj->col[i] == t_parent) {
-						if (adj->data[i] < bottleneck - EPS) {
-							bottleneck = adj->data[i];
-						}
-						break;
-					}
-				}
-				t_i = t_parent;
 			}
 
-			// Bottleneck is found now we should push this flow through the path
+			// Bottleneck is found, now we should push this flow through the path
 
-			adj->data[st_edge] -= bottleneck;
+			adj->edges[bound_edge] -= bottleneck;	// Push
 
-			s_i = s_bound;
-			while (s_i != SOURCE) {
-				vx_uint32 s_parent = parent[s_i];
-				for (vx_uint32 i = adj->nz[s_parent]; i < adj->nz[s_parent + 1]; i++) {
-					if (adj->col[i] == s_i) {
-						adj->data[i] -= bottleneck;
-						if (adj->data[i] < EPS) {
-							parent[s_i] = s_i;
-							orphan[orphan_end] = s_i;
-							orphan_end++;
+			for (vx_uint8 cur_tree = TREE_S; cur_tree <= TREE_T; cur_tree++) {
+				vx_uint32 p_i = bound_nodes[cur_tree];		// Going from the boundary edge
+				while (p_i != TERMINAL[cur_tree]) {			// to the both terminals
+					vx_uint32 p_parent = parent[p_i];
+					// The bypass of edges, adjacent to p_i
+					for (vx_uint32 i = adj->nz[p_i]; i < adj->nz[p_i + 1]; i++) {
+						vx_GC_neighbour *nghbr = GET_NBR_IN(TREE_S, i);
+						if (nghbr->px == p_parent) {
+							adj->edges[nghbr->edge] -= bottleneck;	// Push
+							if (adj->edges[nghbr->edge] < EPS) {	// If edge becomes saturated
+								parent[p_i] = p_i;					// the node is cut off
+								orphan[orphan_end] = p_i;			// and becomes 'orphan'
+								orphan_end++;
+							}
+							break;
 						}
-						break;
 					}
+					p_i = p_parent;
 				}
-				s_i = s_parent;
-			}
-			t_i = t_bound;
-			while (t_i != SINK) {
-				vx_uint32 t_parent = parent[t_i];
-				for (vx_uint32 i = adj->nz[t_i]; i < adj->nz[t_i + 1]; i++) {
-					if (adj->col[i] == t_parent) {
-						adj->data[i] -= bottleneck;
-						if (adj->data[i] < EPS) {
-							parent[t_i] = t_i;
-							orphan[orphan_end] = t_i;
-							orphan_end++;
-						}
-						break;
-					}
-				}
-				t_i = t_parent;
 			}
 
 			//////////////////////
@@ -1049,83 +1046,41 @@ void maxFlow(vx_uint32 N, vx_sparse_matrix *adj, vx_uint8 *matte) {
 
 			for (vx_uint32 orph_cur = 0; orph_cur < orphan_end; orph_cur++) {
 				vx_uint32 p = orphan[orph_cur];					// Current orphan
-				if (tree[p] == TREE_S) {
-					vx_bool parentFound = vx_false_e;
-					for (vx_uint32 i = 0; i < N && !parentFound; i++) {
-						for (vx_uint32 j = adj->nz[i]; j < adj->nz[i + 1] && !parentFound; j++) {
-							if (adj->col[j] == p && adj->data[j] > EPS) {
-								vx_uint32 q = i;
-								if (tree[q] == tree[p]) {
-									vx_uint32 q_i = q;
-									while (q_i != SOURCE && parent[q_i] != q_i) {
-										q_i = parent[q_i];
-									}
-									if (q_i == SOURCE) {
-										parent[p] = q;
-										parentFound = vx_true_e;
-									}
-								}
+				vx_bool parentFound = vx_false_e;
+				// Search for new parent among the neighbours
+				for (vx_uint32 i = adj->nz[p]; i < adj->nz[p + 1] && !parentFound; i++) {
+					vx_GC_neighbour *nghbr = GET_NBR_IN(tree[p], i);
+					if (adj->edges[nghbr->edge] > EPS) {	// linked by non-saturated edge
+						vx_uint32 q = nghbr->px;
+						if (tree[q] == tree[p]) {	// in the same tree
+							vx_uint32 q_i = q;	// Check if neighbour's origin is this tree's terminal
+							while (q_i != TERMINAL[tree[p]] && parent[q_i] != q_i) {
+								q_i = parent[q_i];
+							}
+							if (q_i == TERMINAL[tree[p]]) {
+								parent[p] = q;			// New parent is found
+								parentFound = vx_true_e;
 							}
 						}
-					}
-					if (!parentFound) {		// No parent is found in original tree
-						for (vx_uint32 i = 0; i < N; i++) {
-							for (vx_uint32 j = adj->nz[i]; j < adj->nz[i + 1]; j++) {
-								if (adj->col[j] == p) {
-									vx_uint32 q = i;
-									if (adj->data[j] > EPS) {
-										if (!is_active[q]) {
-											active[active_end] = q;
-											active_end++;
-											is_active[q] = vx_true_e;
-										}
-									}
-									if (parent[q] == p) {
-										parent[q] = q;
-										orphan[orphan_end] = q;
-										orphan_end++;
-									}
-								}
-							}
-						}
-						tree[p] = TREE_FREE;
 					}
 				}
-				else if (tree[p] == TREE_T) {
-					vx_bool parentFound = vx_false_e;
-					for (vx_uint32 i = adj->nz[p]; i < adj->nz[p + 1] && !parentFound; i++) {
-						if (adj->data[i] > EPS) {
-							vx_uint32 q = adj->col[i];
-							if (tree[q] == tree[p]) {
-								vx_uint32 q_i = q;
-								while (q_i != SINK && parent[q_i] != q_i) {
-									q_i = parent[q_i];
-								}
-								if (q_i == SINK) {
-									parent[p] = q;
-									parentFound = vx_true_e;
-								}
+				if (!parentFound) {		// If no parent is found in original tree
+					for (vx_uint32 i = adj->nz[p]; i < adj->nz[p + 1]; i++) {
+						vx_GC_neighbour *nghbr = GET_NBR_OUT(tree[p], i);
+						vx_uint32 q = nghbr->px;
+						if (adj->edges[nghbr->edge] > EPS && tree[nghbr->px] != TREE_FREE) {
+							if (active_next[q] == q && q != active_last) {	// 
+								active_next[active_last] = q;	// All neighbours linked by
+								active_last = q;		// non-saturated edges will make active
 							}
 						}
-					}
-					if (!parentFound) {			// No parent is found in original tree
-						for (vx_uint32 i = adj->nz[p]; i < adj->nz[p + 1]; i++) {
-							vx_uint32 q = adj->col[i];
-							if (adj->data[i] > EPS) {
-								if (!is_active[q]) {
-									active[active_end] = q;
-									active_end++;
-									is_active[q] = vx_true_e;
-								}
-							}
-							if (parent[q] == p) {
-								parent[q] = q;
-								orphan[orphan_end] = q;
-								orphan_end++;
-							}
+						if (parent[q] == p) {
+							parent[q] = q;				// All child nodes
+							orphan[orphan_end] = q;		// will make 'orphans'
+							orphan_end++;
 						}
-						tree[p] = TREE_FREE;
 					}
+					tree[p] = TREE_FREE;				// Current orphan becomes free
 				}
 			}
 			orphan_end = 0;
@@ -1139,6 +1094,7 @@ void maxFlow(vx_uint32 N, vx_sparse_matrix *adj, vx_uint8 *matte) {
 	// Trying to get as far as possible from source
 
 	memset(matte, MATTE_BGD, N * sizeof(vx_uint8));
+	// Stack for tree bypass
 	vx_uint32 *stack = (vx_uint32*)calloc(N + 2, sizeof(vx_uint32));
 	stack[0] = SOURCE;
 	vx_uint32 stack_top = 1;
@@ -1149,8 +1105,9 @@ void maxFlow(vx_uint32 N, vx_sparse_matrix *adj, vx_uint8 *matte) {
 		if (node != SOURCE) {
 			matte[node] = MATTE_FGD;	// Achievable pixel is foreground
 		}
+		// Push childs in the stack in inverse order
 		for (vx_uint32 i = adj->nz[node + 1] - 1; i >= adj->nz[node]; i--) {
-			vx_uint32 p = adj->col[i];
+			vx_uint32 p = GET_NBR_OUT(TREE_S, i)->px;
 			if (parent[p] == node) {
 				stack[stack_top] = p;
 				stack_top++;
@@ -1161,6 +1118,6 @@ void maxFlow(vx_uint32 N, vx_sparse_matrix *adj, vx_uint8 *matte) {
 	free(stack);
 	free(tree);
 	free(parent);
-	free(active);
+	free(active_next);
 	free(orphan);
 }
