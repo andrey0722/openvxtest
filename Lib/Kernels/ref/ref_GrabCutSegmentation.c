@@ -862,7 +862,9 @@ vx_float64 computeGmmComponentDataTerm(const GmmComponent *comp, const vx_RGB_co
 vx_float64 computeGmmDataTerm(vx_uint32 K, const GmmComponent *gmm, const vx_RGB_color *color) {
     vx_float64 result = 0.0;
     for (const GmmComponent *comp = gmm; comp < gmm + K; comp++) {
-        result += computeGmmComponentDataTerm(comp, color);
+		if (comp->weight > +0.0 && comp->cov_det > EPS) {
+			result += computeGmmComponentDataTerm(comp, color);
+		}
     }
     return result;
 }
