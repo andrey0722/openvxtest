@@ -1093,31 +1093,11 @@ void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *matte) {
 	//// Cut stage
 	//////////////////////
 
-	// Trying to get as far as possible from source
-
-	memset(matte, MATTE_BGD, N * sizeof(vx_uint8));
-	// Stack for tree bypass
-	vx_uint32 *stack = (vx_uint32*)calloc(N + 2, sizeof(vx_uint32));
-	stack[0] = SOURCE;
-	vx_uint32 stack_top = 1;
-
-	while (stack_top) {
-		stack_top--;
-		vx_uint32 node = stack[stack_top];
-		if (node != SOURCE) {
-			matte[node] = MATTE_FGD;	// Achievable pixel is foreground
-		}
-		// Push childs in the stack in inverse order
-		for (vx_uint32 i = adj->nz[node + 1] - 1; i >= adj->nz[node]; i--) {
-			vx_uint32 p = GET_NBR_OUT(TREE_S, i)->px;
-			if (parent[p] == node) {
-				stack[stack_top] = p;
-				stack_top++;
-			}
-		}
+	for (vx_uint32 i = 0; i < N; i++)
+	{
+		matte[i] = tree[i] == TREE_S ? MATTE_FGD : MATTE_BGD;
 	}
 
-	free(stack);
 	free(tree);
 	free(parent);
 	free(active_next);
