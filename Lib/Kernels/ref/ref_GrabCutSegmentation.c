@@ -9,6 +9,9 @@ Date: 26 March 2016
 
 #include "../ref.h"
 
+#define _USE_MATH_DEFINES
+#include <math.h>
+
 /**  @brief Trimap classes of pixels
      @detailed Each trimap class indicates, to which set: Tbg, Tfg or Tu
 	 some pixel is assigned.
@@ -150,10 +153,17 @@ void initMatte(vx_uint32 N, const vx_uint8 *trimap, vx_uint8 *matte);
 */
 void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *matte);
 
-/** @brief Initializes GMMs from matte
-	@detailed Uses k-means clustering method to divide pixels into K components
-		for given matte class well enough. Initial centroids are being selected
-		with k-means++ algorithm.
+/** @brief Computes maximal eigenvalue and it's eigenvector
+		of symmetric matrix M 3-by-3
+	@param [in] M The source matrix 3-by-3
+	@param [out] eigVal The poiner where maximal eigenvalue is written
+	@param [out] eigVec An array where eigenvector is written
+*/
+void eigen(vx_float64 M[3][3], vx_float64 *eigVal, vx_float64 eigVec[3]);
+
+/** @brief Initializes GMMs from matte.
+	@detailed Uses a binary tree quantization algorithm 
+		described by Orchard and Bouman.
 	@param [in] N The number of pixels
 	@param [in] K The number of GMM components for each GMM
 	@param [in] px Source pixels, 1-by-N array
@@ -377,133 +387,158 @@ void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *matte) {
 	srand(seed);
 }
 
+void eigen(vx_float64 M[3][3], vx_float64 *eigVal, vx_float64 eigVec[3]) {
+	// Modified trigonometric formula of Viet is used to solve cubic equation 
+	// x^3 - x^2 * trace(M) - x * (trace(M^2)-trace(M)^2)/2 - det(M) = 0
+	// to determine eigenvalues
+
+	// M = p*B + q*E, where E is the unit matrix
+	// Matrix B has similar eigenvalues and eigenvectors as M
+
+	vx_float64 trace = M[0][0] + M[1][1] + M[2][2];
+	vx_float64 q = trace / 3;
+	vx_float64 p2 = (M[0][0] - q) * (M[0][0] - q) +
+		(M[1][1] - q) * (M[1][1] - q) + (M[2][2] - q) * (M[2][2] - q) +
+		2 * (M[0][1] * M[0][1] + M[0][2] * M[0][2] + M[1][2] * M[1][2]);
+	vx_float64 p = sqrt(p2 / 6);
+	vx_float64 B[3][3];		// M = p*B + q*E;  B = (M - q*E) / p
+	for (vx_uint32 i = 0; i < 3; i++) {
+		for (vx_uint32 j = 0; j < 3; j++) {
+			B[i][j] = (M[i][j] - (i == j ? q : 0)) / p;
+		}
+	}
+	vx_float64 detB = B[0][0] * (B[1][1] * B[2][2] - B[1][2] * B[2][1]) +
+		B[0][1] * (B[1][0] * B[2][2] - B[1][2] * B[2][0]) -
+		B[0][2] * (B[1][0] * B[2][1] - B[1][1] * B[2][0]);
+
+	vx_float64 phi = acos(detB / 2) / 3; // Angle of first equation's root
+
+	// Eigenvalues eig1 >= eig2 >= eig3
+	vx_float64 eig1 = q + 2 * p * cos(phi);
+	vx_float64 eig3 = q + 2 * p * cos(phi + (2 * M_PI / 3));
+	vx_float64 eig2 = trace - eig1 - eig3; // by the Viet's theorem
+
+	*eigVal = eig1;
+
+	// Computation of eigenvector, corresponding to eig1
+	// (M - eig2*E) * (M - eig3*E) = A
+	// where A is matrix whose columns are eigenvectors,
+	// corresponding to eig1. There could be a null vector so
+	// the sum of these vectors is taken.
+	// Quite sophisticated way to do it is obtained
+	// after rewriting the matrix A
+
+	memset(eigVec, 0, 3 * sizeof(vx_float64));
+	for (vx_uint32 i = 0; i < 3; i++) {
+		for (vx_uint32 j = 0; j < 3; j++) {
+			eigVec[i] += M[i][j] * (M[j][0] + M[j][1] + M[j][2]);
+		}
+		eigVec[i] += eig2 * eig3 - (eig2 + eig3) * (M[i][0] + M[i][1] + M[i][2]);
+	}
+}
+
 void initGmmComponents(vx_uint32 N, vx_uint32 K,
 					   const vx_RGB_color *px, vx_uint32 *gmm_index,
 					   const vx_uint8 *matte, vx_uint8 matteClass) {
 
-	////////////////////////////////
-	/////////// k-means++ (Initial centroids selection)
-	////////////////////////////////
-
-	// Stores distances from each pixel to the closest centroid
-	vx_float64 *dists = (vx_float64*)calloc(N, sizeof(vx_float64));
-	// Stores coordinates of centroids
-	vx_float64 *centroids = (vx_float64*)calloc(K, sizeof(vx_float64) * 3);
-
-	vx_uint32 rndFirst = rand() % N; // first centroid is random
-	centroids[0] = px[rndFirst].b;
-	centroids[1] = px[rndFirst].g;
-	centroids[2] = px[rndFirst].r;
-	for (vx_uint32 i = 1; i < K; i++) {
-		vx_float64 sum = 0;		// Total sum of distances
-		for (vx_uint32 j = 0; j < N; j++) {
-			if (matte[j] == matteClass) {
-                const vx_uint8 *cur_px = (const vx_uint8*)(px + j);
-                dists[j] = sqrt(euclidian_dist_if(cur_px, centroids)); // search for minimal distance
-				for (vx_uint32 m = 1; m < i; m++) {
-                    vx_float64 d = sqrt(euclidian_dist_if(cur_px, centroids + m * 3));
-					if (d < dists[j]) {
-						dists[j] = d;
-					}
-				}
-				sum += dists[j];
-			}
-		}
-		// Some pixel will be the next centroid with probability
-		// proportional to it's distance from 'dists' array
-		vx_float64 rnd = (vx_float64)rand() / RAND_MAX * sum; // Continious uniform distribution on [0 sum2)
-		vx_float64 nsum = 0; // Current sq sum accumulator
-		vx_uint32 j = 0;
-		for (; nsum < rnd; j++) {
-			if (matte[j] == matteClass) {
-				nsum += dists[j];
-			}
-		}
-		// Here j is that random pixel
-        centroids[i * 3 + 0] = px[j].b;
-        centroids[i * 3 + 1] = px[j].g;
-        centroids[i * 3 + 2] = px[j].r;
-	}
-
-	////////////////////////////////
-	/////////// k-means
-	////////////////////////////////
-
-	// Stores numbers of pixels, assigned to each centroid
+	// Stores numbers of pixels, assigned to each component
 	vx_uint32 *pxCount = (vx_uint32*)calloc(K, sizeof(vx_uint32));
-	// Stores sums of pixels, assigned to each centroid
-	vx_uint32 *pxSum = (vx_uint32*)calloc(K, sizeof(vx_uint32) * 3);
+	// Stores sums of each component's pixel colors
+	vx_uint32(*pxSum)[3] = (vx_uint32(*)[3])calloc(K, 3 * sizeof(vx_uint32));
+	// Stores all productions of each component's pixel colors (for covariance)
+	vx_uint32(*pxProd)[3][3] = (vx_uint32(*)[3][3])calloc(K, 9 * sizeof(vx_uint32));
+	// Stores eigenvalues of each component's covariance matrix
+	vx_float64 *eigenVal = (vx_float64*)calloc(K, sizeof(vx_float64));
+	// Stores eigenvectors of each component's covariance matrix
+	vx_float64 (*eigenVec)[3] = (vx_float64(*)[3])calloc(K, 3 * sizeof(vx_float64));
 
-	// The amount of k-means iterations. 10 is enough for good start.
-	const vx_uint32 iterLimit = 10;
+	vx_float64 cov[3][3];	// Covariance matrix
 
-	for (vx_uint32 iter = 0; iter < iterLimit; iter++) {
-		memset(pxCount, 0, sizeof(vx_uint32) * K);
-		memset(pxSum, 0, sizeof(vx_uint32) * 3 * K);
-		for (vx_uint32 i = 0; i < N; i++) {
-			if (matte[i] == matteClass) {
-				vx_uint32 bestCluster = 0; // The closest
-                const vx_uint8 *cur_px = (const vx_uint8*)(px + i);
-                vx_float64 minDist = sqrt(euclidian_dist_if(cur_px, centroids));
-				for (vx_uint32 j = 1; j < K; j++) {		// Search for the best cluster
-					vx_float64 d = sqrt(euclidian_dist_if(cur_px, centroids + j * 3));
-					if (d < minDist) {
-						bestCluster = j;
-						minDist = d;
-					}
+	// Add all pixels of matteClass to the 0-th component
+	for (vx_uint32 p = 0; p < N; p++) {
+		if (matte[p] == matteClass) {
+			gmm_index[p] = 0;		// Assign to component
+			vx_uint8 *color = (vx_uint8*)(px + p);
+			for (vx_uint32 i = 0; i < 3; i++) {
+				pxSum[0][i] += color[i];
+				for (vx_uint32 j = 0; j < 3; j++) {
+					pxProd[0][i][j] += color[i] * color[j];
 				}
-				gmm_index[i] = bestCluster;
-				pxSum[bestCluster * 3 + 0] += px[i].b;
-				pxSum[bestCluster * 3 + 1] += px[i].g;
-				pxSum[bestCluster * 3 + 2] += px[i].r;
-				pxCount[bestCluster]++;
 			}
-		}
-
-        // Looking for empty clusters
-        for (vx_uint32 i = 0; i < K; i++) {
-            if (pxCount[i] > 0) {
-                continue;
-            }
-
-            vx_uint32 maxCluster = 0;
-            vx_uint32 maxCnt = 0;
-            for (vx_uint32 j = 0; j < K; j++) {     // Search for the most fat cluster
-                if (pxCount[j] > maxCnt) {
-                    maxCnt = pxCount[j];
-                    maxCluster = j;
-                }
-            }
-
-            vx_uint32 farthestPx = 0;
-            vx_float64 maxDist = 0;
-            for (vx_uint32 j = 0; j < N; j++) {         // And move the farthest pixel to the empty
-                if (matte[j] == matteClass && gmm_index[j] == maxCluster) {
-                    vx_float64 d = euclidian_dist_if((vx_uint8*)(px + j), centroids + maxCluster * 3);
-                    if (d > maxDist) {
-                        maxDist = d;
-                        farthestPx = j;
-                    }
-                }
-            }
-
-            pxCount[maxCluster]--;
-            pxCount[i]++;
-            gmm_index[farthestPx] = i;
-        }
-
-		for (vx_uint32 i = 0; i < K; i++) {
-			// Move centroids to the mass center of clusters
-            centroids[i * 3 + 0] = (vx_float64)pxSum[i * 3 + 0] / pxCount[i];
-            centroids[i * 3 + 1] = (vx_float64)pxSum[i * 3 + 1] / pxCount[i];
-            centroids[i * 3 + 2] = (vx_float64)pxSum[i * 3 + 2] / pxCount[i];
+			pxCount[0]++;
 		}
 	}
 
-	free(dists);
+	// Do until number of components is reached K
+	for (vx_uint32 k = 1; k < K; k++) {
+
+		// Compute eigenvalues and eigenvectors of last built component
+		for (vx_uint32 i = 0; i < 3; i++) {
+			for (vx_uint32 j = 0; j < 3; j++) {
+				vx_uint32 d = pxProd[k - 1][i][j] - pxSum[k - 1][i] * pxSum[k - 1][j];
+				cov[i][j] = (vx_float64)d / pxCount[k - 1];
+			}
+		}
+		eigen(cov, eigenVal + k - 1, eigenVec[k - 1]);
+
+		// Search for maximal eigenvalue of component
+		vx_uint32 maxV = 0;		// The component with max eighenvalue
+		vx_float64 maxEigenVal = eigenVal[0];
+		for (vx_uint32 i = 1; i < K; i++) {
+			if (eigenVal[i] > maxEigenVal) {
+				maxEigenVal = eigenVal[i];
+				maxV = i;
+			}
+		}
+
+		// limit = eigenvector * mean[maxV]
+		vx_float64 limit = eigenVec[maxV][0] * pxSum[maxV][0] / pxCount[maxV] +
+			eigenVec[maxV][1] * pxSum[maxV][1] / pxCount[maxV] +
+			eigenVec[maxV][2] * pxSum[maxV][2] / pxCount[maxV];
+
+		pxCount[k] = 0;
+
+		// Add all pixels from maxV-th component that satisfy
+		// eigenvector * color <= eigenvector * mean[maxV]
+		//  to the new k-th component
+		for (vx_uint32 p = 0; p < N; p++) {
+			if (matte[p] == matteClass) {
+				vx_uint32 *color = (vx_uint32*)(px + p);
+				// value = eigenvector * color
+				vx_float64 value = eigenVec[maxV][0] * color[0] +
+					eigenVec[maxV][1] * color[1] +
+					eigenVec[maxV][2] * color[2];
+				if (value <= limit) {		// if satisfies
+					gmm_index[p] = k;		// Assign to the k-th component
+					for (vx_uint32 i = 0; i < 3; i++) {
+						pxSum[k][i] += color[i];	// Include in k-th
+						pxSum[maxV][i] -= color[i];	// Exclude from maxV-th
+						for (vx_uint32 j = 0; j < 3; j++) {
+							pxProd[k][i][j] += color[i] * color[j];		// Include in k-th
+							pxProd[maxV][i][j] -= color[i] * color[j];	// Exclude from maxV-th
+						}
+					}
+					pxCount[k]++;		// Include in k-th
+					pxCount[maxV]--;	// Exclude from maxV-th
+				}
+			}
+		}
+
+		// Compute eigenvalues and eigenvectors of the new k-th component
+		for (vx_uint32 i = 0; i < 3; i++) {
+			for (vx_uint32 j = 0; j < 3; j++) {
+				vx_uint32 d = pxProd[maxV][i][j] - pxSum[maxV][i] * pxSum[maxV][j];
+				cov[i][j] = (vx_float64)d / pxCount[maxV];
+			}
+		}
+		eigen(cov, eigenVal + maxV, eigenVec[maxV]);
+	}
+
 	free(pxCount);
 	free(pxSum);
-	free(centroids);
+	free(pxProd);
+	free(eigenVal);
+	free(eigenVec);
 }
 
 void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm_index,
