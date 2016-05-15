@@ -34,10 +34,10 @@ private:
 
 	/** @brief A copy of the same enumeration from
 	   'Lib\Kernels\ref\ref_GrabCutSegmentation.c' */
-	enum ETrimapClass {
-		TRIMAP_BGD = 1,
-		TRIMAP_FGD = 2,
-		TRIMAP_UNDEF = 4
+	enum VX_GC_Mask {
+		VX_GC_BGD = 1, ///< Background class
+		VX_GC_FGD = 2, ///< Foreground class
+		VX_GC_UNDEF = 4 ///< Undefined class
 	};
 
 	virtual void execute() override;
@@ -131,21 +131,21 @@ void demo_GrabCut::VXGrabCut() {
 	};
 
 	uint8_t* mask_data = static_cast<uint8_t*>(calloc(m_imgSize.width * m_imgSize.height, sizeof(uint8_t)));
-	memset(mask_data, TRIMAP_BGD,m_imgSize.width * m_imgSize.height * sizeof(uint8_t));
+	memset(mask_data, VX_GC_BGD, m_imgSize.width * m_imgSize.height * sizeof(uint8_t));
 	for (int i = 0; i < m_rect.height; i++) {
 		for (int j = 0; j < m_rect.width; j++) {
-			mask_data[(m_rect.y + i) * m_imgSize.width + (m_rect.x + j)] = TRIMAP_UNDEF;
+			mask_data[(m_rect.y + i) * m_imgSize.width + (m_rect.x + j)] = VX_GC_FGD | VX_GC_UNDEF;
 		}
 	}
 
-	_vx_matrix trimap = {
+	_vx_matrix mask = {
 		mask_data,
 		m_imgSize.height,
 		m_imgSize.width,
 		VX_TYPE_UINT8
 	};
 
-	ref_GrabCutSegmentation(&srcVXImage, &trimap, &dstVXImage);
+	ref_GrabCutSegmentation(&srcVXImage, &mask, &dstVXImage);
 
 	m_VXImage = cv::Mat(m_imgSize, CV_8UC3, dstVXImage.data);
 	cv::imshow(m_openVXWindow, m_VXImage);

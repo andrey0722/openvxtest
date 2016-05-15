@@ -16,17 +16,10 @@ Date: 26 March 2016
      @detailed Each trimap class indicates, to which set: Tbg, Tfg or Tu
 	 some pixel is assigned.
 */
-enum ETrimapClass {
-	TRIMAP_BGD = 1, ///< Background class
-	TRIMAP_FGD = 2, ///< Foreground class
-	TRIMAP_UNDEF = 4 ///< Undefined class
-};
-
-/** @brief Provides strict segmentation
-*/
-enum EMatteClass {
-	MATTE_BGD, ///< Background
-	MATTE_FGD  ///< Foreground
+enum VX_GC_Mask {
+	VX_GC_BGD = 1, ///< Background class
+	VX_GC_FGD = 2, ///< Foreground class
+	VX_GC_UNDEF = 4 ///< Undefined class
 };
 
 #pragma pack(push,1)
@@ -136,22 +129,14 @@ vx_uint32 euclidian_dist_ii(const vx_uint8 *z1, const vx_uint8 *z2);
 */
 vx_float64 euclidian_dist_if(const vx_uint8 *z1, const vx_float64 *z2);
 
-/** @brief Initializes matte from the trimap.
-	@param [in] N The number of elements
-	@param [in] trimap Agorithm's trimap
-	@param [out] matte Algorithm's matte
-
-*/
-void initMatte(vx_uint32 N, const vx_uint8 *trimap, vx_uint8 *matte);
-
 /** @brief Initialize random generator specifically with source image and user input
 	@detailed This function set random generator seed without using time() function, so
 		so the seed will be different on the different calls with similar input.
 	@param [in] N The number of pixels
 	@param [in] data Source pixel colors, 1-by-N array
-	@param [in] matte Algorithm's matte, 1-by-N array
+	@param [in] mask Algorithm's mask, 1-by-N array
 */
-void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *matte);
+void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *mask);
 
 /** @brief Computes maximal eigenvalue and it's eigenvector
 		of symmetric matrix M 3-by-3
@@ -168,11 +153,11 @@ void eigen(vx_float64 M[3][3], vx_float64 *eigVal, vx_float64 eigVec[3]);
 	@param [in] K The number of GMM components for each GMM
 	@param [in] px Source pixels, 1-by-N array
 	@param [out] gmm_index GMM components indexes, assigned to each pixel, 1-by-N array
-	@param [in] matte Algorithm's matte, 1-by-N array
-	@param [in] matteClass A matte class to initialize corresponding GMM
+	@param [in] mask Algorithm's mask, 1-by-N array
+	@param [in] maskClass A mask class to initialize corresponding GMM
 */
 void initGmmComponents(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
-					   vx_uint32 *gmm_index, const vx_uint8 *matte, vx_uint8 matteClass);
+					   vx_uint32 *gmm_index, const vx_uint8 *mask, vx_uint8 maskClass);
 
 /** @brief Separates all pixels to GMM components basing on the previous partition.
 	@param [in] N The number of pixels
@@ -180,11 +165,11 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
 	@param [in] px Source pixels, 1-by-N array
 	@param [in,out] gmm_index GMM components indexes, assigned to each pixel, 1-by-N array
 	@param [in] gmm The GMM component that is being reassigned, 1-by-K array
-	@param [in] matte Algorithm's matte, 1-by-N array
-	@param [in] matteClass A matte class to initialize corresponding GMM
+	@param [in] mask Algorithm's matte, 1-by-N array
+	@param [in] maskClass A mask class to initialize corresponding GMM
 */
 void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm_index,
-                const GmmComponent *gmm, const vx_uint8 *matte, vx_uint8 matteClass);
+                const GmmComponent *gmm, const vx_uint8 *mask, vx_uint8 maskClass);
 
 /** @brief Computes all required numerical characteristics of the GMM components.
 		Does process only GMM, corresponding to given matte class
@@ -193,12 +178,12 @@ void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm
 	@param [in] px Source pixels, 1-by-N array
 	@param [in] gmm_index GMM components indexes, assigned to each pixel, 1-by-N array
 	@param [out] gmm GMM component, whose characteristics are to be computed, 1-by-K array
-	@param [in] matte Algorithm's matte, 1-by-N array
-	@param [in] matteClass A matte class to learn corresponding GMM parameters
+	@param [in] mask Algorithm's matte, 1-by-N array
+	@param [in] maskClass A mask class to learn corresponding GMM parameters
 */
 void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
 			   const vx_uint32 *gmm_index, GmmComponent *gmm,
-			   const vx_uint8 *matte, vx_uint8 matteClass);
+			   const vx_uint8 *mask, vx_uint8 maskClass);
 
 /** @brief Computes the 'beta' parameter of the algorithm.
 	@param [in] data Image's pixel colors, height-by-width array
@@ -222,13 +207,13 @@ vx_float64 computeMaxWeight(vx_uint32 N, const vx_GC_graph *adj);
 	@param [in] data Image's pixel colors, 1-by-(width*height) array
 	@param [in] width The width of image
 	@param [in] height The height of image
-	@param [in] matte Algorithm's matte, 1-by-N array
+	@param [in] mask Algorithm's mask, 1-by-N array
 	@param [in] gamma Parameter of the algorithm
 	@param [in] beta Parameter of the algorithm
 	@param [in,out] adj A graph adjacency matrix (N+2)-by-(N+2)
 */
 void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
-					vx_uint32 height, const vx_uint8 *matte,
+					vx_uint32 height, const vx_uint8 *mask,
 					vx_float64 gamma, vx_float64 beta, vx_GC_graph *adj);
 
 /** @brief Allocates required memory for the graph
@@ -277,20 +262,20 @@ vx_float64 computeGmmDataTerm(vx_uint32 K, const GmmComponent *gmm, const vx_RGB
 	@param [in] data Image's pixel colors, 1-by-N array
 	@param [in] bgdGMM The background GMM
 	@param [in] fgdGMM The foreground GMM
-	@param [in] trimap The algorithm's trimap
+	@param [in] mask The algorithm's mask
 	@param [in] maxWeight Parameter of the algorithm, pretty large
 	@param [in,out] adj A graph adjacency matrix (N+2)-by-(N+2)
 */
 void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data,
 						   const GmmComponent *bgdGMM, const GmmComponent *fgdGMM,
-						   const vx_uint8 *trimap, vx_float64 maxWeight, vx_GC_graph *adj);
+						   const vx_uint8 *mask, vx_float64 maxWeight, vx_GC_graph *adj);
 
 /** @brief Finds the max-flow through the network and the corresponding min-cut
 	@param [in] N The number of pixels (non-terminal vertices)
 	@param [in,out] adj An adjacency matrix of network
-	@param [in] matte Algorithm's matte, 1-by-N array, generates by min-cut
+	@param [in] mask Algorithm's matte, 1-by-N array, generates by min-cut
 */
-void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *matte);
+void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *mask);
 
 vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
 	const vx_uint32 src_width = src_image->width;
@@ -312,10 +297,8 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	vx_uint32 K = 5;
 	// Pixels' colors
 	vx_RGB_color *px = (vx_RGB_color*)src_image->data;
-	// The trimap, indicates pixels separation
-	vx_uint8 *trimap_data = (vx_uint8*)trimap->data;
-	// The matte, indicates current segmentation
-	vx_uint8 *matte = (vx_uint8*)calloc(N, sizeof(vx_uint8));
+	// The mask, indicates pixels separation
+	vx_uint8 *mask_data = (vx_uint8*)trimap->data;
 	// GMM components indexes, assigned to each pixel
 	vx_uint32 *GMM_index = (vx_uint32*)calloc(N, sizeof(vx_uint32));
 	// Background GMM
@@ -332,29 +315,28 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	buildGraph(&adj_graph, NNZ_total, N + 2);
 	buildGraph(&adj_rest, NNZ_total, N + 2);
 
-	initRnd(N, px, matte);
-	initMatte(N, trimap_data, matte);
+	initRnd(N, px, mask_data);
 	vx_float64 gamma = 50;
 	vx_float64 beta = computeBeta(px, src_width, src_height);
-	setGraphNLinks(px, src_width, src_height, matte, gamma, beta, &adj_graph);
+	setGraphNLinks(px, src_width, src_height, mask_data, gamma, beta, &adj_graph);
 	vx_float64 maxWeight = computeMaxWeight(N, &adj_graph);
-	initGmmComponents(N, K, px, GMM_index, matte, MATTE_BGD);
-	initGmmComponents(N, K, px, GMM_index, matte, MATTE_FGD);
-	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
-	learnGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
+	initGmmComponents(N, K, px, GMM_index, mask_data, VX_GC_BGD);
+	initGmmComponents(N, K, px, GMM_index, mask_data, VX_GC_FGD);
+	learnGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
+	learnGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
 
-    assignGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
-    assignGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
-	learnGMMs(N, K, px, GMM_index, bgdGMM, matte, MATTE_BGD);
-	learnGMMs(N, K, px, GMM_index, fgdGMM, matte, MATTE_FGD);
-	setGraphTLinks(N, K, px, bgdGMM, fgdGMM, trimap_data, maxWeight, &adj_graph);
+	assignGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
+	assignGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
+	learnGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
+	learnGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
+	setGraphTLinks(N, K, px, bgdGMM, fgdGMM, mask_data, maxWeight, &adj_graph);
 	copyGraph(&adj_graph, &adj_rest, N + 2);
-	maxFlow(N, &adj_rest, matte);
+	maxFlow(N, &adj_rest, mask_data);
 
 	vx_RGB_color* dst_data = (vx_RGB_color*)dst_image->data;
 	memset(dst_data, 0, N * sizeof(vx_RGB_color));
 	for (vx_uint32 i = 0; i < N; i++) {
-		if (matte[i] == MATTE_FGD) {
+		if (mask_data[i] & VX_GC_FGD) {
 			dst_data[i] = px[i]; // Copy foreground pixels
 		}
 	}
@@ -363,22 +345,16 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	destructGraph(&adj_rest);
 	free(bgdGMM);
 	free(fgdGMM);
-	free(matte);
+	free(mask_data);
 	free(GMM_index);
 
 	return VX_SUCCESS;
 }
 
-void initMatte(vx_uint32 N, const vx_uint8 *trimap, vx_uint8 *matte) {
-	for (vx_uint32 i = 0; i < N; i++) {
-		matte[i] = (trimap[i] == TRIMAP_BGD) ? MATTE_BGD : MATTE_FGD;
-	}
-}
-
-void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *matte) {
+void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *mask) {
 	vx_uint32 seed = 0;
 	for (vx_uint32 i = 0; i < N; i++) {
-		if (matte[i] == MATTE_FGD) {
+		if (mask[i] & VX_GC_FGD) {
 			seed += data[i].b;
 			seed += data[i].g;
 			seed += data[i].r;
@@ -439,7 +415,7 @@ void eigen(vx_float64 M[3][3], vx_float64 *eigVal, vx_float64 eigVec[3]) {
 
 void initGmmComponents(vx_uint32 N, vx_uint32 K,
 					   const vx_RGB_color *px, vx_uint32 *gmm_index,
-					   const vx_uint8 *matte, vx_uint8 matteClass) {
+					   const vx_uint8 *mask, vx_uint8 maskClass) {
 
 	// Stores numbers of pixels, assigned to each component
 	vx_uint32 *pxCount = (vx_uint32*)calloc(K, sizeof(vx_uint32));
@@ -456,7 +432,7 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 
 	// Add all pixels of matteClass to the 0-th component
 	for (vx_uint32 p = 0; p < N; p++) {
-		if (matte[p] == matteClass) {
+		if (mask[p] & maskClass) {
 			gmm_index[p] = 0;		// Assign to component
 			vx_uint8 *color = (vx_uint8*)(px + p);
 			for (vx_uint32 i = 0; i < 3; i++) {
@@ -502,7 +478,7 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 		// eigenvector * color <= eigenvector * mean[maxV]
 		//  to the new k-th component
 		for (vx_uint32 p = 0; p < N; p++) {
-			if (matte[p] == matteClass) {
+			if (mask[p] & maskClass) {
 				vx_uint32 *color = (vx_uint32*)(px + p);
 				// value = eigenvector * color
 				vx_float64 value = eigenVec[maxV][0] * color[0] +
@@ -542,11 +518,11 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 }
 
 void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm_index,
-                const GmmComponent *gmm, const vx_uint8 *matte, vx_uint8 matteClass) {
+				const GmmComponent *gmm, const vx_uint8 *mask, vx_uint8 maskClass) {
     vx_uint32 *cnt = (vx_uint32*)calloc(K, sizeof(vx_uint32));
     memset(cnt, 0, K * sizeof(vx_uint32));
     for (vx_uint32 i = 0; i < N; i++) {
-        if (matte[i] & matteClass) {
+		if (mask[i] & maskClass) {
             const vx_RGB_color *color = px + i;
             vx_uint32 min_comp = 0;
             vx_float64 min = computeGmmComponentDataTerm(gmm, color);
@@ -578,7 +554,7 @@ void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm
         vx_uint32 farthestPx = 0;
         vx_float64 maxVal = 0;
         for (vx_uint32 j = 0; j < N; j++) {
-            if (matte[j] == matteClass && gmm_index[j] == maxComp) {
+			if (mask[j] & maskClass && gmm_index[j] == maxComp) {
                 vx_float64 D = computeGmmComponentDataTerm(gmm + maxComp, px + j);
                 if (D > maxVal) {
                     maxVal = D;
@@ -596,7 +572,7 @@ void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm
 
 void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
 			   const vx_uint32 *gmm_index, GmmComponent *gmm,
-			   const vx_uint8 *matte, vx_uint8 matteClass) {
+			   const vx_uint8 *mask, vx_uint8 maskClass) {
 
 	// Stores sums of color components in every GMM component
 	vx_uint32 *sums = (vx_uint32*)calloc(K * 3, sizeof(vx_uint32));
@@ -614,21 +590,20 @@ void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
 
 	// Accumulating
 	for (vx_uint32 k = 0; k < N; k++) {
-		if (matte[k] != matteClass) {
-			continue;		// Only given matte class
-		}
-		vx_uint32 comp = gmm_index[k];
-		vx_uint8 *color = (vx_uint8*)(px + k);
-		for (vx_uint8 i = 0; i < 3; i++) {
-			sums[comp * 3 + i] += color[i];
-		}
-		for (vx_uint32 i = 0; i < 3; i++) {
-			for (vx_uint32 j = 0; j < 3; j++) {
-				prods[(comp * 9) + (i * 3) + j] += color[i] * color[j];
+		if (mask[k] & maskClass) {
+			vx_uint32 comp = gmm_index[k];
+			vx_uint8 *color = (vx_uint8*)(px + k);
+			for (vx_uint8 i = 0; i < 3; i++) {
+				sums[comp * 3 + i] += color[i];
 			}
+			for (vx_uint32 i = 0; i < 3; i++) {
+				for (vx_uint32 j = 0; j < 3; j++) {
+					prods[(comp * 9) + (i * 3) + j] += color[i] * color[j];
+				}
+			}
+			counts[comp]++;
+			counts_total++;
 		}
-		counts[comp]++;
-		counts_total++;
 	}
 
 	// Computing parameters
@@ -784,7 +759,7 @@ void buildGraph(vx_GC_graph *adj, vx_uint32 NNZ, vx_uint32 N) {
 }
 
 void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
-					vx_uint32 height, const vx_uint8 *matte,
+					vx_uint32 height, const vx_uint8 *mask,
 					vx_float64 gamma, vx_float64 beta, vx_GC_graph *adj) {
 
 	vx_float64 sqrt_2 = sqrt(2);
@@ -801,7 +776,7 @@ void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
 		for (vx_uint32 j = 0; j < 8; j++) {			// process all the neighbours
 			if (check[j](row, col, height, width)) {
 				vx_uint32 other = get_neighbour[j](i, height, width);
-				if (matte[i] == matte[other]) {
+				if (((mask[i] ^ mask[other]) & (VX_GC_BGD | VX_GC_FGD)) == 0) {
 					const vx_uint8 *otherData = (const vx_uint8*)(data + other);
 					vx_uint32 d = euclidian_dist_ii(cur_data, otherData);
 					vx_float64 weight = gamma * exp(-beta * d) / (j & 1 ? 1 : sqrt_2);
@@ -905,7 +880,7 @@ vx_float64 computeGmmDataTerm(vx_uint32 K, const GmmComponent *gmm, const vx_RGB
 }
 
 void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data, const GmmComponent *bgdGMM,
-					const GmmComponent *fgdGMM, const vx_uint8 *trimap,
+					const GmmComponent *fgdGMM, const vx_uint8 *mask,
 					vx_float64 maxWeight, vx_GC_graph *adj) {
 
 	vx_uint32 source = N;
@@ -914,19 +889,19 @@ void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data, const Gm
 	for (vx_uint32 i = 0; i < N; i++) {
 		vx_float64 fromSouce = 0;
 		vx_float64 toSink = 0;
-		switch (trimap[i]) {
-		case TRIMAP_BGD:		// Background
-			fromSouce = 0;
-			toSink = maxWeight;
-			break;
-		case TRIMAP_FGD:		// Foreground
-			fromSouce = maxWeight;
-			toSink = 0;
-			break;
-		case TRIMAP_UNDEF:		// Undefined
+		if (mask[i] & VX_GC_UNDEF) {		// Undefined
 			fromSouce = computeGmmDataTerm(K, bgdGMM, data + i);
 			toSink = computeGmmDataTerm(K, fgdGMM, data + i);
-			break;
+		}
+		else {
+			if (mask[i] & VX_GC_BGD) {		// Background
+				fromSouce = 0;
+				toSink = maxWeight;
+			}
+			else {							// Foreground
+				fromSouce = maxWeight;
+				toSink = 0;
+			}
 		}
 
 		vx_uint32 sourcePos = adj->nbr[adj->nz[source] + i].out.edge;
@@ -942,7 +917,7 @@ void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data, const Gm
 // Gets the neighbouring edge by index i in adj_nbr[]. For TREE_S - incoming, for TREE_T - outcoming.
 #define GET_NBR_IN(TREE, i) ((TREE) == TREE_S ? &adj->nbr[(i)].in : &adj->nbr[(i)].out)
 
-void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *matte) {
+void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *mask) {
 	const vx_uint32 SOURCE = N;		// The source terminal
 	const vx_uint32 SINK = N + 1;	// The sink terminal
 	const vx_uint8 TREE_S = 0;		// Pixel from source tree
@@ -1130,7 +1105,9 @@ void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *matte) {
 
 	for (vx_uint32 i = 0; i < N; i++)
 	{
-		matte[i] = tree[i] == TREE_S ? MATTE_FGD : MATTE_BGD;
+		if (mask[i] & VX_GC_UNDEF) {
+			mask[i] = (tree[i] == TREE_S ? VX_GC_FGD : VX_GC_BGD) | VX_GC_UNDEF;
+		}
 	}
 
 	free(tree);
