@@ -32,14 +32,6 @@ private:
 		SET				// the rectangle is already drawn
 	};
 
-	/** @brief A copy of the same enumeration from
-	   'Lib\Kernels\ref\ref_GrabCutSegmentation.c' */
-	enum VX_GC_Mask {
-		VX_GC_BGD = 1, ///< Background class
-		VX_GC_FGD = 2, ///< Foreground class
-		VX_GC_UNDEF = 4 ///< Undefined class
-	};
-
 	virtual void execute() override;
 	void showOriginal();
 

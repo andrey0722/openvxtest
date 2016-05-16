@@ -12,16 +12,6 @@ Date: 26 March 2016
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-/**  @brief Trimap classes of pixels
-     @detailed Each trimap class indicates, to which set: Tbg, Tfg or Tu
-	 some pixel is assigned.
-*/
-enum VX_GC_Mask {
-	VX_GC_BGD = 1, ///< Background class
-	VX_GC_FGD = 2, ///< Foreground class
-	VX_GC_UNDEF = 4 ///< Undefined class
-};
-
 #pragma pack(push,1)
 
 const vx_float64 EPS = +1.0e-12; //< An accuracy of comparison of floating point values

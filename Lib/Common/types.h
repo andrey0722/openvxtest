@@ -218,4 +218,12 @@ struct _vx_pyramid {
     enum vx_df_image_e image_type;
 };
 
+/**  @brief Mask classes of the Grabcut algorithm
+*/
+enum VX_GC_Mask {
+	VX_GC_BGD = 1, ///< Background
+	VX_GC_FGD = 2, ///< Foreground
+	VX_GC_UNDEF = 4 ///< Undefined
+};
+
 #endif //__TYPES_H0__
