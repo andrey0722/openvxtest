@@ -263,17 +263,17 @@ void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data,
 /** @brief Finds the max-flow through the network and the corresponding min-cut
 	@param [in] N The number of pixels (non-terminal vertices)
 	@param [in,out] adj An adjacency matrix of network
-	@param [in] mask Algorithm's matte, 1-by-N array, generates by min-cut
+	@param [in] mask Algorithm's mask, 1-by-N array, generates by min-cut
 */
 void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *mask);
 
-vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx_image dst_image) {
+vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask) {
 	const vx_uint32 src_width = src_image->width;
 	const vx_uint32 src_height = src_image->height;
-	const vx_uint32 trimap_width = trimap->width;
-	const vx_uint32 trimap_height = trimap->height;
+	const vx_uint32 mask_width = mask->width;
+	const vx_uint32 mask_height = mask->height;
 
-	if (src_width != trimap_width || src_height != trimap_height)
+	if (src_width != mask_width || src_height != mask_height)
 	{
 		return VX_ERROR_INVALID_PARAMETERS;
 	}
@@ -288,7 +288,7 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	// Pixels' colors
 	vx_RGB_color *px = (vx_RGB_color*)src_image->data;
 	// The mask, indicates pixels separation
-	vx_uint8 *mask_data = (vx_uint8*)trimap->data;
+	vx_uint8 *mask_data = (vx_uint8*)mask->data;
 	// GMM components indexes, assigned to each pixel
 	vx_uint32 *GMM_index = (vx_uint32*)calloc(N, sizeof(vx_uint32));
 	// Background GMM
@@ -323,19 +323,10 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix trimap, vx
 	copyGraph(&adj_graph, &adj_rest, N + 2);
 	maxFlow(N, &adj_rest, mask_data);
 
-	vx_RGB_color* dst_data = (vx_RGB_color*)dst_image->data;
-	memset(dst_data, 0, N * sizeof(vx_RGB_color));
-	for (vx_uint32 i = 0; i < N; i++) {
-		if (mask_data[i] & VX_GC_FGD) {
-			dst_data[i] = px[i]; // Copy foreground pixels
-		}
-	}
-
 	destructGraph(&adj_graph);
 	destructGraph(&adj_rest);
 	free(bgdGMM);
 	free(fgdGMM);
-	free(mask_data);
 	free(GMM_index);
 
 	return VX_SUCCESS;

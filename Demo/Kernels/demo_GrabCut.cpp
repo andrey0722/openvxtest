@@ -105,6 +105,8 @@ void demo_GrabCut::CVGrabCut() {
 }
 
 void demo_GrabCut::VXGrabCut() {
+	uint32_t N = m_imgSize.width * m_imgSize.height;
+
 	_vx_image srcVXImage = {
 		m_srcImage.data,
 		m_imgSize.width,
@@ -113,16 +115,9 @@ void demo_GrabCut::VXGrabCut() {
 		VX_COLOR_SPACE_DEFAULT
 	};
 
-	uint8_t* outVXImage = static_cast<uint8_t*>(calloc(m_imgSize.width * m_imgSize.height, sizeof(uint8_t)* 3));
-	_vx_image dstVXImage = {
-		outVXImage,
-		m_imgSize.width,
-		m_imgSize.height,
-		VX_DF_IMAGE_RGB,
-		VX_COLOR_SPACE_DEFAULT
-	};
+	uint8_t* outVXImage = static_cast<uint8_t*>(calloc(N, sizeof(uint8_t)* 3));
 
-	uint8_t* mask_data = static_cast<uint8_t*>(calloc(m_imgSize.width * m_imgSize.height, sizeof(uint8_t)));
+	uint8_t* mask_data = static_cast<uint8_t*>(calloc(N, sizeof(uint8_t)));
 	memset(mask_data, VX_GC_BGD, m_imgSize.width * m_imgSize.height * sizeof(uint8_t));
 	for (int i = 0; i < m_rect.height; i++) {
 		for (int j = 0; j < m_rect.width; j++) {
@@ -137,9 +132,18 @@ void demo_GrabCut::VXGrabCut() {
 		VX_TYPE_UINT8
 	};
 
-	ref_GrabCutSegmentation(&srcVXImage, &mask, &dstVXImage);
+	ref_GrabCutSegmentation(&srcVXImage, &mask);
 
-	m_VXImage = cv::Mat(m_imgSize, CV_8UC3, dstVXImage.data);
+	memset(outVXImage, 0, N * sizeof(uint8_t)* 3);
+	for (vx_uint32 i = 0; i < N; i++) {
+		if (mask_data[i] & VX_GC_FGD) {
+			outVXImage[3 * i + 0] = m_srcImage.data[3 * i + 0];
+			outVXImage[3 * i + 1] = m_srcImage.data[3 * i + 1];
+			outVXImage[3 * i + 2] = m_srcImage.data[3 * i + 2];
+		}
+	}
+
+	m_VXImage = cv::Mat(m_imgSize, CV_8UC3, outVXImage);
 	cv::imshow(m_openVXWindow, m_VXImage);
 }
 
