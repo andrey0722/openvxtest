@@ -32,6 +32,8 @@ private:
 		SET				// the rectangle is already drawn
 	};
 
+	static const int iterCount = 1;
+
 	virtual void execute() override;
 	void showOriginal();
 
@@ -97,7 +99,7 @@ void demo_GrabCut::CVGrabCut() {
 	cv::Mat cvBgdModel, cvFgdModel, cvMask;
 	cvMask.create(m_imgSize, CV_8UC1);
 
-	cv::grabCut(m_srcImage, cvMask, m_rect, cvBgdModel, cvFgdModel, 1, cv::GC_INIT_WITH_RECT);
+	cv::grabCut(m_srcImage, cvMask, m_rect, cvBgdModel, cvFgdModel, iterCount, cv::GC_INIT_WITH_RECT);
 
 	cv::Mat cvBinMask = cvMask & cv::GC_FGD;
 	m_srcImage.copyTo(m_CVImage, cvBinMask);
@@ -132,7 +134,7 @@ void demo_GrabCut::VXGrabCut() {
 		VX_TYPE_UINT8
 	};
 
-	ref_GrabCutSegmentation(&srcVXImage, &mask);
+	ref_GrabCutSegmentation(&srcVXImage, &mask, iterCount);
 
 	memset(outVXImage, 0, N * sizeof(uint8_t)* 3);
 	for (vx_uint32 i = 0; i < N; i++) {

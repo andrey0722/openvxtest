@@ -267,7 +267,7 @@ void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data,
 */
 void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *mask);
 
-vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask) {
+vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask, vx_uint32 iterCount) {
 	const vx_uint32 src_width = src_image->width;
 	const vx_uint32 src_height = src_image->height;
 	const vx_uint32 mask_width = mask->width;
@@ -315,13 +315,15 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask) {
 	learnGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
 	learnGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
 
-	assignGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
-	assignGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
-	learnGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
-	learnGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
-	setGraphTLinks(N, K, px, bgdGMM, fgdGMM, mask_data, maxWeight, &adj_graph);
-	copyGraph(&adj_graph, &adj_rest, N + 2);
-	maxFlow(N, &adj_rest, mask_data);
+	for (vx_uint32 iter = 0; iter < iterCount; iter++) {
+		assignGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
+		assignGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
+		learnGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
+		learnGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
+		setGraphTLinks(N, K, px, bgdGMM, fgdGMM, mask_data, maxWeight, &adj_graph);
+		copyGraph(&adj_graph, &adj_rest, N + 2);
+		maxFlow(N, &adj_rest, mask_data);
+	}
 
 	destructGraph(&adj_graph);
 	destructGraph(&adj_rest);
