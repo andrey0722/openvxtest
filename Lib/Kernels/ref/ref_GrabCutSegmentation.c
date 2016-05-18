@@ -159,7 +159,7 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
 	@param [in] maskClass A mask class to initialize corresponding GMM
 */
 void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm_index,
-                const GmmComponent *gmm, const vx_uint8 *mask, vx_uint8 maskClass);
+				GmmComponent *bgdGMM, GmmComponent *fgdGMM, const vx_uint8 *mask);
 
 /** @brief Computes all required numerical characteristics of the GMM components.
 		Does process only GMM, corresponding to given matte class
@@ -172,8 +172,8 @@ void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm
 	@param [in] maskClass A mask class to learn corresponding GMM parameters
 */
 void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
-			   const vx_uint32 *gmm_index, GmmComponent *gmm,
-			   const vx_uint8 *mask, vx_uint8 maskClass);
+			   const vx_uint32 *gmm_index, GmmComponent *bgdGMM,
+			   GmmComponent *fgdGMM, const vx_uint8 *mask);
 
 /** @brief Computes the 'beta' parameter of the algorithm.
 	@param [in] data Image's pixel colors, height-by-width array
@@ -312,14 +312,11 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask, vx_u
 	vx_float64 maxWeight = computeMaxWeight(N, &adj_graph);
 	initGmmComponents(N, K, px, GMM_index, mask_data, VX_GC_BGD);
 	initGmmComponents(N, K, px, GMM_index, mask_data, VX_GC_FGD);
-	learnGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
-	learnGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
+	learnGMMs(N, K, px, GMM_index, bgdGMM, fgdGMM, mask_data);
 
 	for (vx_uint32 iter = 0; iter < iterCount; iter++) {
-		assignGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
-		assignGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
-		learnGMMs(N, K, px, GMM_index, bgdGMM, mask_data, VX_GC_BGD);
-		learnGMMs(N, K, px, GMM_index, fgdGMM, mask_data, VX_GC_FGD);
+		assignGMMs(N, K, px, GMM_index, bgdGMM, fgdGMM, mask_data);
+		learnGMMs(N, K, px, GMM_index, bgdGMM, fgdGMM, mask_data);
 		setGraphTLinks(N, K, px, bgdGMM, fgdGMM, mask_data, maxWeight, &adj_graph);
 		copyGraph(&adj_graph, &adj_rest, N + 2);
 		maxFlow(N, &adj_rest, mask_data);
@@ -500,128 +497,106 @@ void initGmmComponents(vx_uint32 N, vx_uint32 K,
 	free(eigenVec);
 }
 
+#define IND(A) (((A) & (VX_GC_BGD | VX_GC_FGD)) - 1)
+
 void assignGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px, vx_uint32 *gmm_index,
-				const GmmComponent *gmm, const vx_uint8 *mask, vx_uint8 maskClass) {
-    vx_uint32 *cnt = (vx_uint32*)calloc(K, sizeof(vx_uint32));
-    memset(cnt, 0, K * sizeof(vx_uint32));
-    for (vx_uint32 i = 0; i < N; i++) {
-		if (mask[i] & maskClass) {
-            const vx_RGB_color *color = px + i;
-            vx_uint32 min_comp = 0;
-            vx_float64 min = computeGmmComponentDataTerm(gmm, color);
-            for (vx_uint32 j = 0; j < K; j++) {
-                vx_float64 D = computeGmmComponentDataTerm(gmm + j, color);
-                if (D < min) {
-                    min = D;
-                    min_comp = j;
-                }
-            }
-            gmm_index[i] = min_comp;
-            cnt[min_comp]++;
-        }
-    }
-    for (vx_uint32 i = 0; i < K; i++) {
-        if (cnt[i] > 0) {
-            continue;
-        }
+				GmmComponent *bgdGMM, GmmComponent *fgdGMM, const vx_uint8 *mask) {
 
-        vx_uint32 maxComp = 0;
-        vx_uint32 maxCnt = 0;
-        for (vx_uint32 j = 0; j < K; j++) {
-            if (cnt[j] > maxCnt) {
-                maxCnt = cnt[j];
-                maxComp = j;
-            }
-        }
+	GmmComponent *gmm[2];
+	gmm[IND(VX_GC_FGD)] = fgdGMM;
+	gmm[IND(VX_GC_BGD)] = bgdGMM;
 
-        vx_uint32 farthestPx = 0;
-        vx_float64 maxVal = 0;
-        for (vx_uint32 j = 0; j < N; j++) {
-			if (mask[j] & maskClass && gmm_index[j] == maxComp) {
-                vx_float64 D = computeGmmComponentDataTerm(gmm + maxComp, px + j);
-                if (D > maxVal) {
-                    maxVal = D;
-                    farthestPx = j;
-                }
-            }
-        }
-
-        cnt[maxComp]--;
-        cnt[i]++;
-        gmm_index[farthestPx] = i;
-
-    }
+	for (vx_uint32 i = 0; i < N; i++) {
+		vx_uint8 ind = IND(mask[i]);
+		const vx_RGB_color *color = px + i;
+		vx_uint32 min_comp = 0;
+		vx_float64 min = computeGmmComponentDataTerm(gmm[ind], color);
+		for (vx_uint32 j = 0; j < K; j++) {
+			vx_float64 D = computeGmmComponentDataTerm(gmm[ind] + j, color);
+			if (D < min) {
+				min = D;
+				min_comp = j;
+			}
+		}
+		gmm_index[i] = min_comp;
+	}
 }
 
 void learnGMMs(vx_uint32 N, vx_uint32 K, const vx_RGB_color *px,
-			   const vx_uint32 *gmm_index, GmmComponent *gmm,
-			   const vx_uint8 *mask, vx_uint8 maskClass) {
+			   const vx_uint32 *gmm_index, GmmComponent *bgdGMM,
+			   GmmComponent *fgdGMM, const vx_uint8 *mask) {
 
 	// Stores sums of color components in every GMM component
-	vx_uint32 *sums = (vx_uint32*)calloc(K * 3, sizeof(vx_uint32));
+	vx_uint32 (*sums)[2] = (vx_uint32(*)[2])calloc(K * 3 * 2, sizeof(vx_uint32));
 	// Stores sums of productions of all pairs of color components in every GMM component
-	vx_uint32 *prods = (vx_uint32*)calloc(K * 9, sizeof(vx_uint32));
+	vx_uint32 (*prods)[2] = (vx_uint32(*)[2])calloc(K * 9 * 2, sizeof(vx_uint32));
 	// Stores the number of pixels in each GMM component
-	vx_uint32 *counts = (vx_uint32*)calloc(K, sizeof(vx_uint32));
+	vx_uint32 (*counts)[2] = (vx_uint32(*)[2])calloc(K * 2, sizeof(vx_uint32));
 	// Stores total number of pixels in this GMM
-	vx_uint32 counts_total;
+	vx_uint32 counts_total[2];
 
-	memset(sums, 0, K * 3 * sizeof(vx_uint32));
-	memset(prods, 0, K * 9 * sizeof(vx_uint32));
-	memset(counts, 0, K * sizeof(vx_uint32));
-	counts_total = 0;
+	memset(sums, 0, K * 3 * 2 * sizeof(vx_uint32));
+	memset(prods, 0, K * 9 * 2 * sizeof(vx_uint32));
+	memset(counts, 0, K * 2 * sizeof(vx_uint32));
+	memset(counts_total, 0, 2 * sizeof(vx_uint32));
+
+	GmmComponent *gmm[2]; 
+	gmm[IND(VX_GC_FGD)] = fgdGMM;
+	gmm[IND(VX_GC_BGD)] = bgdGMM;
 
 	// Accumulating
 	for (vx_uint32 k = 0; k < N; k++) {
-		if (mask[k] & maskClass) {
-			vx_uint32 comp = gmm_index[k];
-			vx_uint8 *color = (vx_uint8*)(px + k);
-			for (vx_uint8 i = 0; i < 3; i++) {
-				sums[comp * 3 + i] += color[i];
-			}
-			for (vx_uint32 i = 0; i < 3; i++) {
-				for (vx_uint32 j = 0; j < 3; j++) {
-					prods[(comp * 9) + (i * 3) + j] += color[i] * color[j];
-				}
-			}
-			counts[comp]++;
-			counts_total++;
+		vx_uint8 ind = IND(mask[k]);
+		vx_uint32 comp = gmm_index[k];
+		vx_uint8 *color = (vx_uint8*)(px + k);
+		for (vx_uint8 i = 0; i < 3; i++) {
+			sums[comp * 3 + i][ind] += color[i];
 		}
+		for (vx_uint32 i = 0; i < 3; i++) {
+			for (vx_uint32 j = 0; j < 3; j++) {
+				prods[(comp * 9) + (i * 3) + j][ind] += color[i] * color[j];
+			}
+		}
+		counts[comp][ind]++;
+		counts_total[ind]++;
 	}
 
+	vx_float64 cov[3][3];	// covariance matrix, just local
+
 	// Computing parameters
-	for (vx_uint32 comp = 0; comp < K; comp++) {
-		GmmComponent *gc = gmm + comp;
-		vx_float64 cov[3][3];	// covariance matrix, just local
-		for (vx_uint32 i = 0; i < 3; i++) {		// mean colors
-			gc->mean[i] = (vx_float64)sums[comp * 3 + i] / counts[comp];
-		}
-		for (vx_uint32 i = 0; i < 3; i++) {		// covariance matrix
-			for (vx_uint32 j = 0; j < 3; j++) {
-				cov[i][j] = (vx_float64)prods[(comp * 9) + (i * 3) + j] / counts[comp];
-				cov[i][j] -= gc->mean[i] * gc->mean[j];
+	for (vx_uint8 ind = 0; ind < 2; ind++) {
+		for (vx_uint32 comp = 0; comp < K; comp++) {
+			GmmComponent *gc = gmm[ind] + comp;
+			for (vx_uint32 i = 0; i < 3; i++) {		// mean colors
+				gc->mean[i] = (vx_float64)sums[comp * 3 + i][ind] / counts[comp][ind];
 			}
+			for (vx_uint32 i = 0; i < 3; i++) {		// covariance matrix
+				for (vx_uint32 j = 0; j < 3; j++) {
+					cov[i][j] = (vx_float64)prods[(comp * 9) + (i * 3) + j][ind] / counts[comp][ind];
+					cov[i][j] -= gc->mean[i] * gc->mean[j];
+				}
+			}
+
+			// Determinant
+			gc->cov_det = cov[0][0] * (cov[1][1] * cov[2][2] - cov[1][2] * cov[2][1]);
+			gc->cov_det -= cov[0][1] * (cov[1][0] * cov[2][2] - cov[1][2] * cov[2][0]);
+			gc->cov_det += cov[0][2] * (cov[1][0] * cov[2][1] - cov[1][1] * cov[2][0]);
+
+			// Inverse covariance matrix
+			gc->inv_cov[0][0] = (cov[1][1] * cov[2][2] - cov[1][2] * cov[2][1]) / gc->cov_det;
+			gc->inv_cov[0][1] = -(cov[0][1] * cov[2][2] - cov[0][2] * cov[2][1]) / gc->cov_det;
+			gc->inv_cov[0][2] = (cov[0][1] * cov[1][2] - cov[0][2] * cov[1][1]) / gc->cov_det;
+
+			gc->inv_cov[1][0] = -(cov[1][0] * cov[2][2] - cov[1][2] * cov[2][0]) / gc->cov_det;
+			gc->inv_cov[1][1] = (cov[0][0] * cov[2][2] - cov[0][2] * cov[2][0]) / gc->cov_det;
+			gc->inv_cov[1][2] = -(cov[0][0] * cov[1][2] - cov[0][2] * cov[1][0]) / gc->cov_det;
+
+			gc->inv_cov[2][0] = (cov[1][0] * cov[2][1] - cov[1][1] * cov[2][0]) / gc->cov_det;
+			gc->inv_cov[2][1] = -(cov[0][0] * cov[2][1] - cov[0][1] * cov[2][0]) / gc->cov_det;
+			gc->inv_cov[2][2] = (cov[0][0] * cov[1][1] - cov[0][1] * cov[1][0]) / gc->cov_det;
+
+			gc->weight = (vx_float64)counts[comp][ind] / counts_total[ind]; // component weight (pi)
 		}
-
-		// Determinant
-		gc->cov_det = cov[0][0] * (cov[1][1] * cov[2][2] - cov[1][2] * cov[2][1]);
-		gc->cov_det -= cov[0][1] * (cov[1][0] * cov[2][2] - cov[1][2] * cov[2][0]);
-		gc->cov_det += cov[0][2] * (cov[1][0] * cov[2][1] - cov[1][1] * cov[2][0]);
-
-		// Inverse covariance matrix
-		gc->inv_cov[0][0] = (cov[1][1] * cov[2][2] - cov[1][2] * cov[2][1]) / gc->cov_det;
-		gc->inv_cov[0][1] = -(cov[0][1] * cov[2][2] - cov[0][2] * cov[2][1]) / gc->cov_det;
-		gc->inv_cov[0][2] = (cov[0][1] * cov[1][2] - cov[0][2] * cov[1][1]) / gc->cov_det;
-
-		gc->inv_cov[1][0] = -(cov[1][0] * cov[2][2] - cov[1][2] * cov[2][0]) / gc->cov_det;
-		gc->inv_cov[1][1] = (cov[0][0] * cov[2][2] - cov[0][2] * cov[2][0]) / gc->cov_det;
-		gc->inv_cov[1][2] = -(cov[0][0] * cov[1][2] - cov[0][2] * cov[1][0]) / gc->cov_det;
-
-		gc->inv_cov[2][0] = (cov[1][0] * cov[2][1] - cov[1][1] * cov[2][0]) / gc->cov_det;
-		gc->inv_cov[2][1] = -(cov[0][0] * cov[2][1] - cov[0][1] * cov[2][0]) / gc->cov_det;
-		gc->inv_cov[2][2] = (cov[0][0] * cov[1][1] - cov[0][1] * cov[1][0]) / gc->cov_det;
-
-		gc->weight = (vx_float64)counts[comp] / counts_total; // component weight (pi)
 	}
 
 	free(sums);
