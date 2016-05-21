@@ -226,4 +226,12 @@ enum VX_GC_Mask {
 	VX_GC_UNDEF = 4 ///< Undefined
 };
 
+/** @brief Modes of Grabcut call
+*/
+enum VX_GC_Mode {
+	VX_GC_INIT_WITH_MASK,	///< Initialize from mask
+	VX_GC_INIT_WITH_RECT,	///< Initialize with given rect
+	VX_GC_CONTINUE	///< Initialize with given rect
+};
+
 #endif //__TYPES_H0__

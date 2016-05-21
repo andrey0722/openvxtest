@@ -118,14 +118,14 @@ void demo_GrabCut::VXGrabCut() {
 	};
 
 	uint8_t* outVXImage = static_cast<uint8_t*>(calloc(N, sizeof(uint8_t)* 3));
-
 	uint8_t* mask_data = static_cast<uint8_t*>(calloc(N, sizeof(uint8_t)));
-	memset(mask_data, VX_GC_BGD, m_imgSize.width * m_imgSize.height * sizeof(uint8_t));
-	for (int i = 0; i < m_rect.height; i++) {
-		for (int j = 0; j < m_rect.width; j++) {
-			mask_data[(m_rect.y + i) * m_imgSize.width + (m_rect.x + j)] = VX_GC_FGD | VX_GC_UNDEF;
-		}
-	}
+
+	vx_rectangle_t vx_rect = {
+		m_rect.x,
+		m_rect.y,
+		m_rect.x + m_rect.width,
+		m_rect.y + m_rect.height
+	};
 
 	_vx_matrix mask = {
 		mask_data,
@@ -134,7 +134,7 @@ void demo_GrabCut::VXGrabCut() {
 		VX_TYPE_UINT8
 	};
 
-	ref_GrabCutSegmentation(&srcVXImage, &mask, iterCount);
+	ref_GrabCutSegmentation(&srcVXImage, &mask, vx_rect, iterCount, VX_GC_INIT_WITH_RECT);
 
 	memset(outVXImage, 0, N * sizeof(uint8_t)* 3);
 	for (vx_uint32 i = 0; i < N; i++) {

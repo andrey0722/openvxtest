@@ -152,7 +152,8 @@ vx_status ref_Threshold(const vx_image src_image, vx_image dst_image, const vx_t
         VX_SUCCESS          - в случае успешного завершения;
         VX_ERROR_INVALID_PARAMETERS - в случае некорректных данных.       
 */
-vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask, vx_uint32 iterCount);
+vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask,
+								  vx_rectangle_t rect, vx_uint32 iterCount, vx_uint8 mode);
 
 /*
     Function: ref_ViBeMotionDetection

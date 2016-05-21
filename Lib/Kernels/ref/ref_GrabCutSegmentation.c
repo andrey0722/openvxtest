@@ -267,7 +267,8 @@ void setGraphTLinks(vx_uint32 N, vx_uint32 K, const vx_RGB_color *data,
 */
 void maxFlow(vx_uint32 N, vx_GC_graph *adj, vx_uint8 *mask);
 
-vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask, vx_uint32 iterCount) {
+vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask,
+								  vx_rectangle_t rect, vx_uint32 iterCount, vx_uint8 mode) {
 	const vx_uint32 src_width = src_image->width;
 	const vx_uint32 src_height = src_image->height;
 	const vx_uint32 mask_width = mask->width;
@@ -278,6 +279,9 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask, vx_u
 		return VX_ERROR_INVALID_PARAMETERS;
 	}
 	if (src_image->image_type != VX_DF_IMAGE_RGB) {
+		return VX_ERROR_INVALID_PARAMETERS;
+	}
+	if (mask->array_type != VX_TYPE_UINT8) {
 		return VX_ERROR_INVALID_PARAMETERS;
 	}
 
@@ -300,6 +304,29 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask, vx_u
 	// The adacency matrix for the rest graph (the same size)
 	vx_GC_graph adj_rest;
 
+	if (mode == VX_GC_CONTINUE) {
+		// Initialize GMMs from input (perspective)
+	}
+	else {
+		if (mode == VX_GC_INIT_WITH_RECT) {
+			if (rect.end_x > rect.start_x + mask->width) {
+				rect.end_x = rect.start_x + mask->width;
+			}
+			if (rect.end_y > rect.start_y + mask->height) {
+				rect.end_y = rect.start_y + mask->height;
+			}
+			memset(mask_data, VX_GC_BGD, N * sizeof(uint8_t));
+			for (vx_uint32 y = rect.start_y; y < rect.end_y; y++) {
+				for (vx_uint32 x = rect.start_x; x < rect.end_x; x++) {
+					mask_data[y * mask->width + x] = VX_GC_FGD | VX_GC_UNDEF;
+				}
+			}
+		}
+		initGmmComponents(N, K, px, GMM_index, mask_data, VX_GC_BGD);
+		initGmmComponents(N, K, px, GMM_index, mask_data, VX_GC_FGD);
+		learnGMMs(N, K, px, GMM_index, bgdGMM, fgdGMM, mask_data);
+	}
+
 	// The number of all non-zero elements in the graph adjacency matrix
 	vx_uint32 NNZ_total = (4 * N - 3 * (src_width + src_height) - 1) * 2 + 4 * N;
 	buildGraph(&adj_graph, NNZ_total, N + 2);
@@ -310,9 +337,6 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask, vx_u
 	vx_float64 beta = computeBeta(px, src_width, src_height);
 	setGraphNLinks(px, src_width, src_height, mask_data, gamma, beta, &adj_graph);
 	vx_float64 maxWeight = computeMaxWeight(N, &adj_graph);
-	initGmmComponents(N, K, px, GMM_index, mask_data, VX_GC_BGD);
-	initGmmComponents(N, K, px, GMM_index, mask_data, VX_GC_FGD);
-	learnGMMs(N, K, px, GMM_index, bgdGMM, fgdGMM, mask_data);
 
 	for (vx_uint32 iter = 0; iter < iterCount; iter++) {
 		assignGMMs(N, K, px, GMM_index, bgdGMM, fgdGMM, mask_data);
