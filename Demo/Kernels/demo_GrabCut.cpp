@@ -14,6 +14,7 @@ extern "C"
 }
 
 #include "../DemoEngine.h"
+#include <time.h>
 
 /// @brief Provides drawing a rectangle, handles mouse events.
 void processMouse(int, int, int, int, void*);
@@ -99,11 +100,20 @@ void demo_GrabCut::CVGrabCut() {
 	cv::Mat cvBgdModel, cvFgdModel, cvMask;
 	cvMask.create(m_imgSize, CV_8UC1);
 
+	clock_t t1, t2;
+
+	t1 = clock();
+
 	cv::grabCut(m_srcImage, cvMask, m_rect, cvBgdModel, cvFgdModel, iterCount, cv::GC_INIT_WITH_RECT);
+
+	t2 = clock();
 
 	cv::Mat cvBinMask = cvMask & cv::GC_FGD;
 	m_srcImage.copyTo(m_CVImage, cvBinMask);
 	cv::imshow(m_openCVWindow, m_CVImage);
+	char buf[32];
+	sprintf_s(buf, " (time elapsed: %.3f secs)", (double)(t2 - t1) / CLOCKS_PER_SEC);
+	cv::setWindowTitle(m_openCVWindow, m_openCVWindow + buf);
 }
 
 void demo_GrabCut::VXGrabCut() {
@@ -134,7 +144,13 @@ void demo_GrabCut::VXGrabCut() {
 		VX_TYPE_UINT8
 	};
 
+	clock_t t1, t2;
+
+	t1 = clock();
+
 	ref_GrabCutSegmentation(&srcVXImage, &mask, vx_rect, iterCount, VX_GC_INIT_WITH_RECT);
+
+	t2 = clock();
 
 	memset(outVXImage, 0, N * sizeof(uint8_t)* 3);
 	for (vx_uint32 i = 0; i < N; i++) {
@@ -147,6 +163,9 @@ void demo_GrabCut::VXGrabCut() {
 
 	m_VXImage = cv::Mat(m_imgSize, CV_8UC3, outVXImage);
 	cv::imshow(m_openVXWindow, m_VXImage);
+	char buf[32];
+	sprintf_s(buf, " (time elapsed: %.3f secs)", (double)(t2 - t1) / CLOCKS_PER_SEC);
+	cv::setWindowTitle(m_openVXWindow, m_openVXWindow + buf);
 }
 
 void demo_GrabCut::doDiff() {
