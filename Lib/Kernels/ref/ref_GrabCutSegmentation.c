@@ -338,7 +338,7 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask,
 	}
 
 	// The number of all non-zero elements in the graph adjacency matrix
-	vx_uint32 NNZ_total = (4 * N - 3 * (src_width + src_height) - 1) * 2 + 4 * N;
+	vx_uint32 NNZ_total = (4 * N - 3 * (src_width + src_height) + 2) * 2 + 4 * N;
 	buildGraph(&adj_graph, NNZ_total, N + 2);
 	buildGraph(&adj_rest, NNZ_total, N + 2);
 
