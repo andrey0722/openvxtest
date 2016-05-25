@@ -43,6 +43,9 @@ IDemoCasePtr CreateThresholdingDemo();
 ///@brief create GrabCut demo and returns pointer to IDemoCase
 IDemoCasePtr CreateGrabCutDemo();
 
+///@brief create GrabCut time test demo and returns pointer to IDemoCase
+IDemoCasePtr CreateGrabCutTimeTestDemo();
+
 ///////////////////////////////////////////////////////////////////////////////
 
 ///@class Provide showing demo
@@ -60,6 +63,7 @@ public:
    {
       m_demoRegistry.push_back(CreateThresholdingDemo());
 	  m_demoRegistry.push_back(CreateGrabCutDemo());
+	  m_demoRegistry.push_back(CreateGrabCutTimeTestDemo());
    }
 
    ///@brief Execute demos

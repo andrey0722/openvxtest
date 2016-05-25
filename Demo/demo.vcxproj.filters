@@ -27,6 +27,9 @@
     <ClCompile Include="Kernels\demo_GrabCut.cpp">
       <Filter>Source Files\Kernels</Filter>
     </ClCompile>
+    <ClCompile Include="Kernels\demo_GrabCutTimeTest.cpp">
+      <Filter>Source Files\Kernels</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="DemoEngine.h">
