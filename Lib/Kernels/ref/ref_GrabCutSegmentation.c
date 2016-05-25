@@ -78,10 +78,10 @@ vx_bool(*check[])(vx_uint32, vx_uint32, vx_uint32, vx_uint32) = {
 	has_top,
 	has_top_right,
 	has_left,
+	has_right,
 	has_bottom_left,
 	has_bottom,
-	has_bottom_right,
-	has_right };
+	has_bottom_right };
 
 // Functions than return index of specific neighbour of given pixel
 
@@ -100,10 +100,10 @@ vx_uint32(*get_neighbour[])(vx_uint32, vx_uint32, vx_uint32) = {
 	get_top,
 	get_top_right,
 	get_left,
+	get_right,
 	get_bottom_left,
 	get_bottom,
-	get_bottom_right,
-	get_right };
+	get_bottom_right };
 
 /** @brief Computes euclidian distance between integer pixels in RGB color space
 	@param [in] z1 A pointer to the first pixel, integer
@@ -190,6 +190,16 @@ vx_float64 computeBeta(const vx_RGB_color *data, vx_uint32 width, vx_uint32 heig
 	@return Returns value of max-weight.
 */
 vx_float64 computeMaxWeight(vx_uint32 N, const vx_GC_graph *adj);
+
+/** @brief Helps to calculate position of edge, adjacent to 'cur' and 'other' vertices
+		and outcoming from 'cur'. Contains a lot of magic numbers. Boosts performance.
+	@param [in] cur The vertex, from which needed edge outcomes
+	@param [in] other The vertex, to which needed edge incomes
+	@param [in] width Width of the image
+	@param [in] height Height of the image
+	@return Returns offset of the edge in adjacency list of 'cur'
+*/
+vx_uint32 getEdgeOffset(vx_uint32 cur, vx_uint32 other, vx_uint32 width, vx_uint32 height);
 
 /** @brief Sets N-links in the given graph for the source image.
 	@detailed N-links are the links between neighbouring pixels in image.
@@ -740,6 +750,73 @@ void buildGraph(vx_GC_graph *adj, vx_uint32 NNZ, vx_uint32 N) {
 	memset(adj->nbr, 0, NNZ * sizeof(vx_GC_couple));
 }
 
+vx_uint32 getEdgeOffset(vx_uint32 cur, vx_uint32 other, vx_uint32 width, vx_uint32 height) {
+	vx_uint32 cur_col = cur % width;
+	vx_uint32 cur_row = cur / width;
+	vx_uint32 other_col = other % width;
+	vx_uint32 other_row = other / width;
+	vx_int32 a = other_row - cur_row;
+	vx_int32 b = other_col - cur_col;
+
+	/* This function calculates position of "cur --> other" edge
+	   There are nine possible locations of 'cur' (on schema):
+	                    ________________________________________
+	   top-left case ->|_|_____________top case_______________|_|<- top-right case
+	                   | |                                    | |
+	                   |l|                                    |r|
+	                   |e|                                    |i|
+	                   |f|                                    |g|
+	                   |t|                                    |h|
+	                   | |              MIDDLE                |t|
+	                   | |               CASE                 | |
+	                   |c|                                    |c|
+	                   |a|                                    |a|
+	                   |s|                                    |s|
+	                   |e|                                    |e|
+	                   | |____________________________________| |
+	bottom-left case ->|_|____________bottom case_____________|_|<- bottom-right case
+
+	Depending on the case different formulas are used, quite sophisticated, but effective.
+
+	*/
+
+	if (cur_row == 0) {
+		if (cur_col == 0) {
+			return a * 2 + b - 1;							// top-left case
+		}
+		else if (cur_col == width - 1) {
+			return (a * 2 + (b + 1) + 1) / 2;				// top-right case
+		}
+		else {
+			return a * 2 + (b + 2) / 2 + (a == b ? 1 : 0);	// top case
+		}
+	}
+	else if (cur_row == height - 1) {
+		if (cur_col == 0) {
+			return ((a + 1) * 2 + b + 1) / 2;				// bottom-left case
+		}
+		else if (cur_col == width - 1) {
+			return 3 - (-a * 2 - b);						// bottom-right case
+		}
+		else {
+			return 4 - (-a * 2 + (-b + 2) / 2 + (a == b ? 1 : 0));  // bottom case
+		}
+	}
+	else {
+		if (cur_col == 0) {
+			vx_uint32 x = (a + 1) * 2 + (b + 1) / 2;
+			return x - (x + 2) / 4;							// left case
+		}
+		else if (cur_col == width - 1) {
+			vx_uint32 x = (-a + 1) * 2 + (-b + 1) / 2;
+			return 4 - (x - (x + 2) / 4);					// right case
+		}
+		else {
+			return a + b + 2 + (a ? ((a + 1) / 2) * 3 : (3 - b) / 2); // middle case
+		}
+	}
+}
+
 void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
 					vx_uint32 height, const vx_uint8 *mask,
 					vx_float64 gamma, vx_float64 beta, vx_GC_graph *adj) {
@@ -750,6 +827,7 @@ void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
 	vx_uint32 sink = N + 1;
 
 	vx_uint32 NNZ_cur = 0;
+
 	for (vx_uint32 i = 0; i < N; i++) {
 		vx_uint32 row = i / width;
         vx_uint32 col = i % width;
@@ -758,15 +836,17 @@ void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
 		for (vx_uint32 j = 0; j < 8; j++) {			// process all the neighbours
 			if (check[j](row, col, height, width)) {
 				vx_uint32 other = get_neighbour[j](i, height, width);
-				if (((mask[i] ^ mask[other]) & (VX_GC_BGD | VX_GC_FGD)) == 0) {
-					const vx_uint8 *otherData = (const vx_uint8*)(data + other);
-					vx_uint32 d = euclidian_dist_ii(cur_data, otherData);
-					vx_float64 weight = gamma * exp(-beta * d) / (j & 1 ? 1 : sqrt_2);
-					adj->edges[NNZ_cur] = weight;
-					adj->nbr[NNZ_cur].out.edge = NNZ_cur;
-					adj->nbr[NNZ_cur].out.px = other;
-					NNZ_cur++;
-				}
+				vx_uint32 other_row = other / width;
+				vx_uint32 other_col = other % width;
+				vx_bool same = ((mask[i] ^ mask[other]) & (VX_GC_BGD | VX_GC_FGD)) == 0;
+				vx_bool diagonal = ((col == other_col) ^ (row == other_row));
+				const vx_uint8 *otherData = (const vx_uint8*)(data + other);
+				vx_uint32 d = euclidian_dist_ii(cur_data, otherData);
+				vx_float64 weight = same ? gamma * exp(-beta * d) / (diagonal ? sqrt_2 : 1) : 0;
+				adj->edges[NNZ_cur] = weight;
+				adj->nbr[NNZ_cur].out.edge = NNZ_cur;
+				adj->nbr[NNZ_cur].out.px = other;
+				NNZ_cur++;
 			}
 		}
 
@@ -781,29 +861,22 @@ void setGraphNLinks(const vx_RGB_color *data, vx_uint32 width,
 		adj->nz[i + 1] = NNZ_cur;
 	}
 
-	// init t-links from source
-	for (vx_uint32 i = 0; i < N; i++) {
-		adj->nbr[NNZ_cur].out.edge = NNZ_cur;
-		adj->nbr[NNZ_cur].out.px = i;
-		NNZ_cur++;
+	for (vx_uint32 i = source; i <= sink; i++) {
+		for (vx_uint32 j = 0; j < N; j++) {
+			adj->nbr[NNZ_cur].out.edge = NNZ_cur;			// outcoming from terminal
+			vx_uint32 pos = adj->nz[j + 1] - (sink - i + 1);
+			adj->nbr[NNZ_cur].in.edge = adj->nbr[pos].out.edge; // incoming from terminal
+			adj->nbr[NNZ_cur].out.px = adj->nbr[NNZ_cur].in.px = j;
+			NNZ_cur++;
+		}
+		adj->nz[i + 1] = NNZ_cur;
 	}
-	adj->nz[source + 1] = NNZ_cur;
 
-	// init t-links from sink
-	for (vx_uint32 i = 0; i < N; i++) {
-		adj->nbr[NNZ_cur].out.edge = NNZ_cur;
-		adj->nbr[NNZ_cur].out.px = i;
-		NNZ_cur++;
-	}
-	adj->nz[sink + 1] = NNZ_cur;
-
-	for (vx_uint32 cur = 0; cur < N + 2; cur++) {
+	for (vx_uint32 cur = 0; cur < N; cur++) {
 		for (vx_uint32 i = adj->nz[cur]; i < adj->nz[cur + 1]; i++) {
 			vx_uint32 other = adj->nbr[i].out.px;
-			vx_uint32 j = adj->nz[other];
-			while (adj->nbr[j].out.px != cur) {
-				j++;
-			}
+			vx_uint32 offset = other < N ? getEdgeOffset(other, cur, width, height) : cur;
+			vx_uint32 j = adj->nz[other] + offset;
 			adj->nbr[i].in.px = other;
 			adj->nbr[i].in.edge = j;
 		}
