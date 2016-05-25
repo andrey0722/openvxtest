@@ -119,15 +119,6 @@ vx_uint32 euclidian_dist_ii(const vx_uint8 *z1, const vx_uint8 *z2);
 */
 vx_float64 euclidian_dist_if(const vx_uint8 *z1, const vx_float64 *z2);
 
-/** @brief Initialize random generator specifically with source image and user input
-	@detailed This function set random generator seed without using time() function, so
-		so the seed will be different on the different calls with similar input.
-	@param [in] N The number of pixels
-	@param [in] data Source pixel colors, 1-by-N array
-	@param [in] mask Algorithm's mask, 1-by-N array
-*/
-void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *mask);
-
 /** @brief Computes maximal eigenvalue and it's eigenvector
 		of symmetric matrix M 3-by-3
 	@param [in] M The source matrix 3-by-3
@@ -341,8 +332,6 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask,
 	vx_uint32 NNZ_total = (4 * N - 3 * (src_width + src_height) + 2) * 2 + 4 * N;
 	buildGraph(&adj_graph, NNZ_total, N + 2);
 	buildGraph(&adj_rest, NNZ_total, N + 2);
-
-	initRnd(N, px, mask_data);
 	vx_float64 gamma = 50;
 	vx_float64 beta = computeBeta(px, src_width, src_height);
 	setGraphNLinks(px, src_width, src_height, mask_data, gamma, beta, &adj_graph);
@@ -363,18 +352,6 @@ vx_status ref_GrabCutSegmentation(const vx_image src_image, vx_matrix mask,
 	free(GMM_index);
 
 	return VX_SUCCESS;
-}
-
-void initRnd(vx_uint32 N, const vx_RGB_color *data, const vx_uint8 *mask) {
-	vx_uint32 seed = 0;
-	for (vx_uint32 i = 0; i < N; i++) {
-		if (mask[i] & VX_GC_FGD) {
-			seed += data[i].b;
-			seed += data[i].g;
-			seed += data[i].r;
-		}
-	}
-	srand(seed);
 }
 
 void eigen(vx_float64 M[3][3], vx_float64 *eigVal, vx_float64 eigVec[3]) {
