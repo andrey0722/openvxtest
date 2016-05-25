@@ -142,11 +142,15 @@ vx_status ref_Threshold(const vx_image src_image, vx_image dst_image, const vx_t
 /*
     Function: ref_GrabCutSegmentation
 
-    Описание фукнции
+    Осуществляет сегментацию исходного изображения методом GrabCut на основе
+	прямоугольника на нём или заранее заданной маски.
 
     Parameters (пример):
         src_image           - входное изображение;
-        dst_image           - выходное изображение;
+        mask                - маска сегментация (бинарное изображение, результат);
+		rect                - исходный прямоугольник
+		iterCount           - количество итераций алгоритма
+		mode                - режим запуска
 
     Return:
         VX_SUCCESS          - в случае успешного завершения;
